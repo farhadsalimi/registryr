@@ -1,18 +1,23 @@
-#' Make a funnel plot
+#' Make funnel plots
 #'
-#' @description
-#' The fplot function makes a funnel plot from a dataframe containing at least two columns (i.e numerator and denominator)
+#' Create a funnel plot from a dataframe containing at least two columns (i.e numerator and denominator)
 #' It is currently working only with binary outcome, continuous outcomes will be supported in future
 #'
-#' @param data the dataframe containing the numertaors and denominators
-#' @param outcome the health outcome (e.g. "inpatient mortality")
-#' @param num the name of the column in the data which includes the numerator
-#' @param denom the name of the column in the data which includes the denominator
-#' @param bmi the benchamrk value
+#' @param data dataframe containing the numertaors and denominators
+#' @param outcome string health outcome (e.g. "inpatient mortality")
+#' @param num the name of the column in the dataframe which includes the numerator (e.g. numerator)
+#' @param denom the name of the column in the dataframe which includes the denominator (e.g. denominator)
+#' @param bm the benchamrk value
 #' @param ci1 the alpha related to the first line of control limits (e.g. 0.95)
 #' @param ci2 the alpha related to the second line of control limits (e.g 0.998)
-
-fplot <- function(data, outcome, num, denom, bm, ci1, ci2) {
+#' @param flip_col reverse the colours of the circles
+#'
+#' @return ggplot
+#' @export
+#'
+#' @examples
+#'
+fplot <- function(data, outcome, num, denom, bm, ci1 = 0.95, ci2 = 0.998, flip_col = FALSE) {
 
   funnel_input <-
     data %>%
@@ -31,31 +36,36 @@ fplot <- function(data, outcome, num, denom, bm, ci1, ci2) {
     funnel_input %>%
     dplyr::left_join(funnel_data) %>%
     dplyr::mutate(
-      status = if_else(rate < 100 * lo, "below",
-                       if_else(rate > 100 * up, "above", "within")
+      status = dplyr::if_else(
+        rate < 100 * lo, "below",
+        dplyr::if_else(rate > 100 * up, "above", "within"),
+      ),
+      status = factor(status) %>% forcats::fct_relevel("above", "within", "below")
+    ) %>%
+    tidytidbits::execute_if(flip_col == TRUE,
+      mutate(status = forcats::fct_rev(status))
       )
-    )
 
   funnel_data <-
     funnel_data %>%
     tidyr::gather(key = "key", value = "percent", up:lo2) %>%
     dplyr::mutate(
       percent = 100 * percent,
-      ci = case_when(
+      ci = dplyr::case_when(
         key == "up" | key == "lo" ~ paste0(100 * ci1, "% control limits"),
         key == "up2" | key == "lo2" ~ paste0(100 * ci2, "% control limits")
       )
     )
 
   ## visualise
-  ggplot2::ggplot(data = funnel_input, aes(x = d, y = 100 * n / d)) +
-    ggplot2::geom_hline(data = funnel_data, aes(yintercept = 100 * benchmark), colour = "red") +
+  ggplot2::ggplot(data = funnel_input, ggplot2::aes(x = d, y = 100 * n / d)) +
+    ggplot2::geom_hline(data = funnel_data, ggplot2::aes(yintercept = 100 * benchmark), colour = "red") +
     ggplot2::geom_line(
       data = funnel_data,
-      aes(x = d, y = percent, group = key, linetype = ci)
+      ggplot2::aes(x = d, y = percent, group = key, linetype = ci)
     ) +
     ggplot2::geom_point(
-      aes(fill = status),
+      ggplot2::aes(fill = status),
       shape = 21,
       size = 2,
       colour = "black",
@@ -74,17 +84,18 @@ fplot <- function(data, outcome, num, denom, bm, ci1, ci2) {
     #   show.legend = FALSE
     #   ) +
 
-  ggplot2::coord_cartesian(ylim = c(0, 100 * max(funnel_input$n / funnel_input$d))) +
+    ggplot2::coord_cartesian(ylim = c(0, 100 * max(funnel_input$n / funnel_input$d))) +
     # scale_y_continuous(breaks = seq(0 , 100*max(funnel_input$n/funnel_input$d), round(100*max(funnel_input$n/funnel_input$d)/5))) +
     ggplot2::theme(
       legend.position = "bottom",
-      legend.title = element_blank()
+      legend.title = ggplot2::element_blank()
     ) +
     ggplot2::labs(
       x = "Number of surgeries",
       y = glue::glue("{stringr::str_to_sentence(outcome)} (%)"),
       subtitle = glue::glue("Postoperative {outcome} (mean {round(100*bm,1)} %)")
     ) +
-    ggplot2::scale_fill_manual(values = c("#F8766D", "#00BFC4", "#7CAE00")) +
+    ggplot2::scale_fill_manual(values = c("#F8766D",  "#00BFC4", "#7CAE00")) +
     {NULL}
+
 }
