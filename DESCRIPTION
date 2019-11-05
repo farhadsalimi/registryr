@@ -1,13 +1,27 @@
 Package: registryr
-Title: What the Package Does (One Line, Title Case)
+Title: Functions for the Clinical Registries Analyses 
 Version: 0.0.0.9000
 Authors@R: 
-    person(given = "First",
-           family = "Last",
+    person(given = "Farhad",
+           family = "Salimi",
            role = c("aut", "cre"),
-           email = "first.last@example.com",
+           email = "farhad.salimi@monash.edu",
            comment = c(ORCID = "YOUR-ORCID-ID"))
-Description: What the package does (one paragraph).
-License: What license it uses
+Description: This package includes a collection of functions for the analyses of clinical registry datasets.
+License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
+RoxygenNote: 6.1.1
+Imports: 
+    dplyr,
+    tidyr,
+    ggplot2,
+    glue,
+    funnelR,
+    cowplot,
+    stats,
+    forcats
+Suggests: 
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr
