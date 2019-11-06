@@ -92,8 +92,8 @@ fplot <- function(data, outcome, num, denom, bm, ci1 = 0.95, ci2 = 0.998, flip_c
     ) +
     ggplot2::labs(
       x = "Number of surgeries",
-      y = glue::glue("{stringr::str_to_sentence(outcome)} (%)"),
-      subtitle = glue::glue("Postoperative {outcome} (mean {round(100*bm,1)} %)")
+      y = glue::glue("{outcome} (%)"),
+      subtitle = glue::glue("Postoperative {stringr::str_to_lower(outcome)} (mean {round(100*bm,1)} %)")
     ) +
     ggplot2::scale_fill_manual(values = c("#F8766D",  "#00BFC4", "#7CAE00")) +
     {NULL}
