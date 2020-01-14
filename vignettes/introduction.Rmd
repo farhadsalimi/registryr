@@ -1,0 +1,92 @@
+---
+title: "Introduction"
+author: "Farhad Salimi"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{introduction}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(tibble)
+library(knitr)
+library(dplyr)
+```
+
+## Overview
+
+`registryr` provides tools for the analysis of the clincal registry datasets. These tools will be described in this vignette.
+
+## Funnel plots
+Funnel plot is a visual representation of how individual medical units (e.g. hospitals) perform compared to their peers and the overall average. It also helps to identify the outliers (i.e the ones who are performing better or worse than the average).
+The `fplot` function provides an easy option to make a funnel plot.
+
+Let's firstly make a hypothetical dataset which includes the medical unit identifier, total number of patients who were operated for a disease (denominator) and number of inpatient deaths (numerator).
+
+```{r}
+surgery_data <- tibble::tibble(
+  id = 1:10,
+  n_surgeries = c(110, 15, 60, 85, 30, 17, 96, 82, 26, 46),
+  n_deaths = c(25, 7, 12, 10, 10, 3, 26, 22, 11, 19)
+)
+
+surgery_data %>%
+  knitr::kable()
+
+```
+
+We will use the average mortality rate as the benchmark and will then make a funnel plot using the `fplot` function.
+
+```{r, fig.width = 7, fig.height = 4}
+benchmark <-
+  surgery_data %>%
+  summarise(benchmark = sum(n_deaths) / sum(n_surgeries)) %>%
+  pull(benchmark)
+
+library(registryr)
+
+fplot(data = surgery_data,
+      outcome = "mortality",
+      num = n_deaths,
+      denom = n_surgeries,
+      bm = benchmark)
+
+```
+
+## Stepwise model selection
+We need to firstly simulate a dataset
+```{r}
+# library(simglm)
+# 
+# set.seed(1363)
+# 
+# sim_arguments <- list(
+#   formula = death ~ 1 + weight + age + sex,
+#   fixed = list(weight = list(var_type = 'continuous', mean = 80, sd = 15),
+#                age = list(var_type = 'ordinal', levels = 30:60),
+#                sex = list(var_type = 'factor', levels = c('male', 'female'))),
+#   error = list(variance = 25),
+#   sample_size = 1000,
+#   reg_weights = c(2, 0.5, 0.3, 0.1),
+#   outcome_type = 'logistic'
+# )
+# 
+# simulate_fixed(data = NULL, sim_arguments) %>%
+#   simulate_error(sim_arguments) %>%
+#   generate_response(sim_arguments) %>%
+#   model_fit(sim_arguments) %>%
+#   extract_coefficients()
+#   View()
+
+```
+
+
