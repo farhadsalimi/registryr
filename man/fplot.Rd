@@ -4,7 +4,17 @@
 \alias{fplot}
 \title{Make funnel plots}
 \usage{
-fplot(data, outcome, num, denom, bm, ci1 = 0.95, ci2 = 0.998)
+fplot(
+  data,
+  outcome,
+  num,
+  denom,
+  bm,
+  ci1 = 0.95,
+  ci2 = 0.998,
+  cols = c("#F8766D", "#00BFC4", "#7CAE00"),
+  site_name
+)
 }
 \arguments{
 \item{data}{dataframe containing the numertaors and denominators}
@@ -20,6 +30,10 @@ fplot(data, outcome, num, denom, bm, ci1 = 0.95, ci2 = 0.998)
 \item{ci1}{the alpha related to the first line of control limits (e.g. 0.95)}
 
 \item{ci2}{the alpha related to the second line of control limits (e.g 0.998)}
+
+\item{cols}{the colours used for the points above, within and below the control first control limits}
+
+\item{site_name}{the sites to be highlighted}
 }
 \value{
 ggplot

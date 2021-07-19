@@ -10,14 +10,17 @@
 #' @param bm the benchamrk value
 #' @param ci1 the alpha related to the first line of control limits (e.g. 0.95)
 #' @param ci2 the alpha related to the second line of control limits (e.g 0.998)
-#' @param flip_col reverse the colours of the circles
+#' @param cols the colours used for the points above, within and below the control first control limits
+#' @param site_name the sites to be highlighted
 #'
 #' @return ggplot
 #' @export
 #'
 #' @examples
 #'
-fplot <- function(data, outcome, num, denom, bm, ci1 = 0.95, ci2 = 0.998, flip_col = FALSE) {
+fplot <- function(data, outcome, num, denom, bm, ci1 = 0.95, ci2 = 0.998,
+                  cols = c("#F8766D",  "#00BFC4", "#7CAE00"),
+                  site_name) {
 
   funnel_input <-
     data %>%
@@ -40,11 +43,14 @@ fplot <- function(data, outcome, num, denom, bm, ci1 = 0.95, ci2 = 0.998, flip_c
         rate < 100 * lo, "below",
         dplyr::if_else(rate > 100 * up, "above", "within"),
       ),
-      status = factor(status) %>% forcats::fct_relevel("above", "within", "below")
+      status = factor(status) %>%
+        forcats::fct_expand("above", "within", "below") %>%
+        forcats::fct_relevel("above", "within", "below")
     ) %>%
-    tidytidbits::execute_if(flip_col == TRUE,
-      mutate(status = forcats::fct_rev(status))
-      )
+    # tidytidbits::execute_if(flip_col == TRUE,
+    #   mutate(status = forcats::fct_rev(status))
+    #   )
+    {.}
 
   funnel_data <-
     funnel_data %>%
@@ -59,19 +65,28 @@ fplot <- function(data, outcome, num, denom, bm, ci1 = 0.95, ci2 = 0.998, flip_c
 
   ## visualise
   ggplot2::ggplot(data = funnel_input, ggplot2::aes(x = d, y = 100 * n / d)) +
-    ggplot2::geom_hline(data = funnel_data, ggplot2::aes(yintercept = 100 * benchmark), colour = "red") +
+    ggplot2::geom_hline(data = funnel_data, ggplot2::aes(yintercept = 100 * benchmark),
+                        col = "dark blue") +
     ggplot2::geom_line(
       data = funnel_data,
-      ggplot2::aes(x = d, y = percent, group = key, linetype = ci)
+      ggplot2::aes(x = d, y = percent, group = key, linetype = ci),
+      col = "black"
     ) +
     ggplot2::geom_point(
-      ggplot2::aes(fill = status),
-      shape = 21,
-      size = 2,
-      colour = "black",
-      show.legend = F
+      ggplot2::aes_(col = ~status,
+                   size = as.name(site_name),
+                   shape = as.name(site_name))
+      # show.legend = F
     ) +
-    cowplot::theme_cowplot(font_family = "serif") +
+    # ggplot2::geom_point(
+    #   ggplot2::aes_(
+    #     # col = as.name(site_name),
+    #     size = as.name(site_name)),
+    #   show.legend = T
+    # ) +
+    cowplot::theme_cowplot(
+      # font_family = "serif"
+      ) +
     # geom_text(
     #   #data = funnel_input %>% dplyr::filter(status != "within"),
     #   data = funnel_input,
@@ -91,11 +106,16 @@ fplot <- function(data, outcome, num, denom, bm, ci1 = 0.95, ci2 = 0.998, flip_c
       legend.title = ggplot2::element_blank()
     ) +
     ggplot2::labs(
-      x = "Number of surgeries",
-      y = glue::glue("{outcome} (%)"),
-      subtitle = glue::glue("Postoperative {stringr::str_to_lower(outcome)} (mean {round(100*bm,1)} %)")
+      x = "Count",
+      y = "Outcome (%)"
+      # subtitle = glue::glue("Postoperative {stringr::str_to_lower(outcome)} (mean {round(100*bm,1)} %)")
     ) +
-    ggplot2::scale_fill_manual(values = c("#F8766D",  "#00BFC4", "#7CAE00")) +
+    ggplot2::scale_colour_manual(
+      values = cols) +
+    ggplot2::scale_size_manual(values = c(2, 3)) +
+    ggplot2::guides(colour = FALSE,
+                    size = "legend",
+                    shape = "legend") +
     {NULL}
 
 }

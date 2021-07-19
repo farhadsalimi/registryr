@@ -102,7 +102,7 @@ stepwise <-
             current_model <-
               glm(
                 formula = f,
-                family = gaussian(link = "idenitity"),
+                family = gaussian(link = "identity"),
                 data = data
               )
           }

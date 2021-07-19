@@ -11,9 +11,10 @@ Description: This package includes a collection of functions for the analyses of
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
-RoxygenNote: 6.1.1
+RoxygenNote: 7.1.1
 Imports: 
     dplyr,
+    tibble,
     tidyr,
     ggplot2,
     glue,

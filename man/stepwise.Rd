@@ -4,8 +4,14 @@
 \alias{stepwise}
 \title{Perform a stepwise logistic or linear regression using LRT tests of significance.}
 \usage{
-stepwise(out_var, ind_var, pe = 0.01, pr = 0.05, data = NULL,
-  model = "logistic")
+stepwise(
+  out_var,
+  ind_var,
+  pe = 0.01,
+  pr = 0.05,
+  data = NULL,
+  model = "logistic"
+)
 }
 \arguments{
 \item{out_var}{the outcome variable}

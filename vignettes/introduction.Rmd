@@ -20,6 +20,8 @@ knitr::opts_chunk$set(
 library(tibble)
 library(knitr)
 library(dplyr)
+library(forcats)
+library(ggplot2)
 ```
 
 ## Overview
@@ -36,7 +38,11 @@ Let's firstly make a hypothetical dataset which includes the medical unit identi
 surgery_data <- tibble::tibble(
   id = 1:10,
   n_surgeries = c(110, 15, 60, 85, 30, 17, 96, 82, 26, 46),
-  n_deaths = c(25, 7, 12, 10, 10, 3, 26, 22, 11, 19)
+  n_deaths = c(25, 7, 12, 10, 10, 3, 26, 22, 11, 19),
+  los = c(5, 6, 5, 4, 5, 4, 6, 6, 5, 4),
+  sd_los = c(2, 1, 0.8, 1, 1.2, 2.4, 3.0, 1.6, 2, 2.2),
+  hospital = c("A", "Others", "Others", "Others", "Others", 
+               "Others", "Others", "Others", "Others", "Others")
 )
 
 surgery_data %>%
@@ -54,11 +60,47 @@ benchmark <-
 
 library(registryr)
 
-fplot(data = surgery_data,
+fplot(data = surgery_data %>% mutate(hospital = fct_rev(hospital)),
       outcome = "mortality",
       num = n_deaths,
       denom = n_surgeries,
-      bm = benchmark)
+      bm = benchmark,
+      site_name = "hospital",
+      cols = c("blue", "red", "yellow"))
+
+surgery_data <-
+  surgery_data %>%
+  mutate(death_rate = n_deaths/ n_surgeries)
+
+surgery_data %>%
+  ggplot(aes(x = n_surgeries, y = death_rate)) +
+  stat_funnelcount(fill = "dark blue",
+              alpha = 0.5,
+              ci_limits = 0.95)+
+  stat_funnelcount(fill = "light blue",
+              alpha = 0.5,
+              ci_limits = 0.998) +
+  geom_hline(yintercept = mean(surgery_data$death_rate),
+             col = "dark blue") +
+  geom_point(aes(shape = fct_rev(hospital))) +
+  scale_x_continuous(expand = c(0, 1)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  coord_cartesian(ylim = c(0, NA),
+                  xlim = c(0, NA)) +
+  theme_bw()
+
+surgery_data %>%
+  ggplot(aes(x = n_surgeries, y = los, sd = sd_los)) +
+  geom_point() +
+  stat_funnelcontinuous(fill = "dark blue",
+              alpha = 0.5,
+              ci_limits = 0.95) +
+  stat_funnelcontinuous(fill = "light blue",
+              alpha = 0.5,
+              ci_limits = 0.998) +
+  labs(
+    x = "Number of surgeries"
+  )
 
 ```
 
