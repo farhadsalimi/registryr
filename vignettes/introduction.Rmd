@@ -34,7 +34,7 @@ The `fplot` function provides an easy option to make a funnel plot.
 
 Let's firstly make a hypothetical dataset which includes the medical unit identifier, total number of patients who were operated for a disease (denominator) and number of inpatient deaths (numerator).
 
-```{r}
+```{r make the datasset}
 surgery_data <- tibble::tibble(
   id = 1:10,
   n_surgeries = c(110, 15, 60, 85, 30, 17, 96, 82, 26, 46),
@@ -52,25 +52,17 @@ surgery_data %>%
 
 We will use the average mortality rate as the benchmark and will then make a funnel plot using the `fplot` function.
 
-```{r, fig.width = 7, fig.height = 4}
+```{r make the funnel plots, fig.width = 7, fig.height = 4}
+library(registryr)
+
 benchmark <-
   surgery_data %>%
   summarise(benchmark = sum(n_deaths) / sum(n_surgeries)) %>%
   pull(benchmark)
 
-library(registryr)
-
-fplot(data = surgery_data %>% mutate(hospital = fct_rev(hospital)),
-      outcome = "mortality",
-      num = n_deaths,
-      denom = n_surgeries,
-      bm = benchmark,
-      site_name = "hospital",
-      cols = c("blue", "red", "yellow"))
-
 surgery_data <-
   surgery_data %>%
-  mutate(death_rate = n_deaths/ n_surgeries)
+  mutate(death_rate = n_deaths / n_surgeries)
 
 surgery_data %>%
   ggplot(aes(x = n_surgeries, y = death_rate)) +
