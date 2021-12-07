@@ -41,12 +41,14 @@ Let's firstly load a fake dataset which comes with the package.
 ```{r make a simulated datasset}
 data(fake_data)
 
-n_sites <- fake_data %>% pull(site_id) %>% n_distinct()
+head(fake_data)
 ```
 
 We will use the average mortality rate and length of dtay as the benchmarks and will then make funnel plots using the `stat_funnelcount` and `stat_funnelcontinuous` functions.
 
 ```{r make the funnel plots, fig.width = 7, fig.height = 4}
+n_sites <- fake_data %>% pull(site_id) %>% n_distinct()
+
 benchmark_mortality <-
   fake_data %>%
   summarise(benchmark = sum(dead) / n()) %>%
