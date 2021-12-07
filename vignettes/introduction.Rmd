@@ -22,6 +22,10 @@ library(knitr)
 library(dplyr)
 library(forcats)
 library(ggplot2)
+library(modelr)
+library(tidyr)
+library(registryr)
+library(scales)
 ```
 
 ## Overview
@@ -32,95 +36,130 @@ library(ggplot2)
 Funnel plot is a visual representation of how individual medical units (e.g. hospitals) perform compared to their peers and the overall average. It also helps to identify the outliers (i.e the ones who are performing better or worse than the average).
 The `fplot` function provides an easy option to make a funnel plot.
 
-Let's firstly make a hypothetical dataset which includes the medical unit identifier, total number of patients who were operated for a disease (denominator) and number of inpatient deaths (numerator).
+Let's firstly loada hypothetical dataset which comes with the package.
 
-```{r make the datasset}
-surgery_data <- tibble::tibble(
-  id = 1:10,
-  n_surgeries = c(110, 15, 60, 85, 30, 17, 96, 82, 26, 46),
-  n_deaths = c(25, 7, 12, 10, 10, 3, 26, 22, 11, 19),
-  los = c(5, 6, 5, 4, 5, 4, 6, 6, 5, 4),
-  sd_los = c(2, 1, 0.8, 1, 1.2, 2.4, 3.0, 1.6, 2, 2.2),
-  hospital = c("A", "Others", "Others", "Others", "Others", 
-               "Others", "Others", "Others", "Others", "Others")
-)
+```{r make a simulated datasset}
+data(fake_data)
 
-surgery_data %>%
-  knitr::kable()
-
+n_sites <- fake_data %>% pull(site_id) %>% n_distinct()
 ```
 
 We will use the average mortality rate as the benchmark and will then make a funnel plot using the `fplot` function.
 
 ```{r make the funnel plots, fig.width = 7, fig.height = 4}
-library(registryr)
-
-benchmark <-
-  surgery_data %>%
-  summarise(benchmark = sum(n_deaths) / sum(n_surgeries)) %>%
+benchmark_mortality <-
+  fake_data %>%
+  summarise(benchmark = sum(dead) / n()) %>%
   pull(benchmark)
 
-surgery_data <-
-  surgery_data %>%
-  mutate(death_rate = n_deaths / n_surgeries)
+fake_data_grouped <-
+  fake_data %>%
+  group_by(site_id) %>%
+  summarise(n_deaths = sum(dead),
+            mean_los = mean(los),
+            n = n())
 
-surgery_data %>%
-  ggplot(aes(x = n_surgeries, y = death_rate)) +
+fake_data_grouped <-
+  fake_data_grouped %>%
+  mutate(death_rate = n_deaths / n,
+         site_id = as_factor(site_id)) %>%
+  # we need to manually change the denominator for the funnel plots, to make it look nicer :)
+  mutate(n = seq(100, 2000, length.out = n_sites),
+         sd_los = rpois(dplyr::n(), 5))
+
+fake_data_grouped %>%
+  ggplot(aes(x = n, y = death_rate)) +
+  geom_hline(yintercept = benchmark_mortality,
+             col = "dark blue") +
+  geom_point() +
   stat_funnelcount(fill = "dark blue",
               alpha = 0.5,
               ci_limits = 0.95)+
   stat_funnelcount(fill = "light blue",
               alpha = 0.5,
               ci_limits = 0.998) +
-  geom_hline(yintercept = mean(surgery_data$death_rate),
-             col = "dark blue") +
-  geom_point(aes(shape = fct_rev(hospital))) +
-  scale_x_continuous(expand = c(0, 1)) +
-  scale_y_continuous(expand = c(0, 0)) +
+  geom_point() +
+  scale_y_continuous(expand = c(0, 0),
+                     limits = c(0, 1),
+                     labels = percent_format()
+                     ) +
   coord_cartesian(ylim = c(0, NA),
                   xlim = c(0, NA)) +
-  theme_bw()
+  theme_bw() +
+  labs(
+    x = "Number of surgeries",
+    y = "Mortality rate"
+  )
 
-surgery_data %>%
-  ggplot(aes(x = n_surgeries, y = los, sd = sd_los)) +
-  geom_point() +
+benchmark_los <-
+  fake_data %>%
+  summarise(benchmark = mean(los)) %>%
+  pull(benchmark)
+
+fake_data_grouped %>%
+  ggplot(aes(x = n, y = mean_los, sd = sd_los)) +
+  geom_hline(yintercept = benchmark_los,
+             col = "dark blue") +
   stat_funnelcontinuous(fill = "dark blue",
               alpha = 0.5,
               ci_limits = 0.95) +
   stat_funnelcontinuous(fill = "light blue",
               alpha = 0.5,
               ci_limits = 0.998) +
+  scale_y_continuous(expand = c(0, 0),
+                     limits = c(35, 48),
+                     ) +
+  geom_point() +
   labs(
-    x = "Number of surgeries"
-  )
+    x = "Number of surgeries",
+    y = "Mean length of stay (days)"
+  ) +
+  theme_bw()
 
 ```
 
 ## Stepwise model selection
-We need to firstly simulate a dataset
+Let's find out what model we should use to adjust the outcome
 ```{r}
-# library(simglm)
-# 
-# set.seed(1363)
-# 
-# sim_arguments <- list(
-#   formula = death ~ 1 + weight + age + sex,
-#   fixed = list(weight = list(var_type = 'continuous', mean = 80, sd = 15),
-#                age = list(var_type = 'ordinal', levels = 30:60),
-#                sex = list(var_type = 'factor', levels = c('male', 'female'))),
-#   error = list(variance = 25),
-#   sample_size = 1000,
-#   reg_weights = c(2, 0.5, 0.3, 0.1),
-#   outcome_type = 'logistic'
-# )
-# 
-# simulate_fixed(data = NULL, sim_arguments) %>%
-#   simulate_error(sim_arguments) %>%
-#   generate_response(sim_arguments) %>%
-#   model_fit(sim_arguments) %>%
-#   extract_coefficients()
-#   View()
+model_mortality <-
+  stepwise(out_var = "dead",
+         ind_var = c("sex_cat", "age"),
+         data = fake_data,
+         model = "logistic")
 
+mortality_adj_vars <- labels(terms(formula(model_mortality)))
 ```
+
+```{r}
+model_los <-
+  stepwise(out_var = "los",
+         ind_var = c("sex_cat", "age"),
+         data = fake_data,
+         model = "linear")
+
+los_adj_vars <- labels(terms(formula(model_mortality)))
+```
+
+Now, let's risk adjust the data using the models found using the stepwise function
+```{r risk adjustment}
+fake_data <- 
+  fake_data %>%
+  ungroup() %>%
+  drop_na(sex, age)
+
+risk_adjust(data = fake_data, 
+            site_id = "site_id",
+            outcome = "dead",
+            outcome_type = "binary",
+            adj_vars = mortality_adj_vars)
+
+risk_adjust(data = fake_data, 
+            site_id = "site_id",
+            outcome = "los",
+            outcome_type = "continuous",
+            adj_vars = los_adj_vars)
+```
+
+
 
 

@@ -1,6 +1,6 @@
 Package: registryr
 Title: Functions for the Clinical Registries Analyses 
-Version: 0.0.0.9000
+Version: 0.0.0.9400
 Authors@R: 
     person(given = "Farhad",
            family = "Salimi",
@@ -21,8 +21,11 @@ Imports:
     funnelR,
     cowplot,
     stats,
-    forcats
+    forcats,
+    modelr
 Suggests: 
     knitr,
     rmarkdown
 VignetteBuilder: knitr
+Depends: 
+    R (>= 2.10)
