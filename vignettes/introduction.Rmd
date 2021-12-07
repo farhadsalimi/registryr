@@ -30,13 +30,13 @@ library(scales)
 
 ## Overview
 
-`registryr` provides tools for the analysis of the clincal registry datasets. These tools will be described in this vignette.
+`registryr` provides tools for the analysis of the clinical registry datasets. These tools will be described in this vignette.
 
 ## Funnel plots
 Funnel plot is a visual representation of how individual medical units (e.g. hospitals) perform compared to their peers and the overall average. It also helps to identify the outliers (i.e the ones who are performing better or worse than the average).
-The `fplot` function provides an easy option to make a funnel plot.
+The `stat_funnelcount` and `stat_funnelcontinuous` functions provide easy options to add funnels to an existing ggplot.
 
-Let's firstly loada hypothetical dataset which comes with the package.
+Let's firstly load a fake dataset which comes with the package.
 
 ```{r make a simulated datasset}
 data(fake_data)
@@ -44,7 +44,7 @@ data(fake_data)
 n_sites <- fake_data %>% pull(site_id) %>% n_distinct()
 ```
 
-We will use the average mortality rate as the benchmark and will then make a funnel plot using the `fplot` function.
+We will use the average mortality rate and length of dtay as the benchmarks and will then make funnel plots using the `stat_funnelcount` and `stat_funnelcontinuous` functions.
 
 ```{r make the funnel plots, fig.width = 7, fig.height = 4}
 benchmark_mortality <-
@@ -119,7 +119,7 @@ fake_data_grouped %>%
 ```
 
 ## Stepwise model selection
-Let's find out what model we should use to adjust the outcome
+Let's find out what model we should use to adjust the outcome, we can do that by using the `stepwise` function
 ```{r}
 model_mortality <-
   stepwise(out_var = "dead",
@@ -140,7 +140,7 @@ model_los <-
 los_adj_vars <- labels(terms(formula(model_mortality)))
 ```
 
-Now, let's risk adjust the data using the models found using the stepwise function
+Now, let's risk adjust the data using the models found using the stepwise function. We can apply risk adjustment by `risk_adj` function.
 ```{r risk adjustment}
 fake_data <- 
   fake_data %>%
