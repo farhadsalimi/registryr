@@ -22,7 +22,10 @@ Imports:
     cowplot,
     stats,
     forcats,
-    modelr
+    modelr,
+    scales,
+    cowplot,
+    ggpol
 Suggests: 
     knitr,
     rmarkdown

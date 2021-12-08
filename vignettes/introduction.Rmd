@@ -44,6 +44,21 @@ data(fake_data)
 head(fake_data)
 ```
 
+We will firstly create a population dataset and then use the `population_pyramid` function to make a population pyramid plot
+```{r}
+population_df <-
+  fake_data %>% 
+  select(-sex) %>% 
+  rename(sex = sex_cat) %>%
+  mutate(age_group = cut(age, c(-Inf, seq(20, 70, 10), Inf))) %>%
+  count(sex, age_group) 
+
+population_df
+
+population_df %>%
+  population_pyramid()
+```
+
 We will use the average mortality rate and length of dtay as the benchmarks and will then make funnel plots using the `stat_funnelcount` and `stat_funnelcontinuous` functions.
 
 ```{r make the funnel plots, fig.width = 7, fig.height = 4}
