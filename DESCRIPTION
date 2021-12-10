@@ -25,7 +25,8 @@ Imports:
     modelr,
     scales,
     cowplot,
-    ggpol
+    ggpol,
+    rmarkdown
 Suggests: 
     knitr,
     rmarkdown

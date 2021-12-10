@@ -32,9 +32,8 @@ library(scales)
 
 `registryr` provides tools for the analysis of the clinical registry datasets. These tools will be described in this vignette.
 
-## Funnel plots
-Funnel plot is a visual representation of how individual medical units (e.g. hospitals) perform compared to their peers and the overall average. It also helps to identify the outliers (i.e the ones who are performing better or worse than the average).
-The `stat_funnelcount` and `stat_funnelcontinuous` functions provide easy options to add funnels to an existing ggplot.
+## Load data
+
 
 Let's firstly load a fake dataset which comes with the package.
 
@@ -44,6 +43,7 @@ data(fake_data)
 head(fake_data)
 ```
 
+## Population pyramid plot
 We will firstly create a population dataset and then use the `population_pyramid` function to make a population pyramid plot
 ```{r}
 population_df <-
@@ -54,11 +54,16 @@ population_df <-
   count(sex, age_group) 
 
 population_df
+```
 
+```{r, fig.width = 7}
 population_df %>%
   population_pyramid()
 ```
 
+## Funnel plots
+Funnel plot is a visual representation of how individual medical units (e.g. hospitals) perform compared to their peers and the overall average. It also helps to identify the outliers (i.e the ones who are performing better or worse than the average).
+The `stat_funnelcount` and `stat_funnelcontinuous` functions provide easy options to add funnels to an existing ggplot.
 We will use the average mortality rate and length of dtay as the benchmarks and will then make funnel plots using the `stat_funnelcount` and `stat_funnelcontinuous` functions.
 
 ```{r make the funnel plots, fig.width = 7, fig.height = 4}
