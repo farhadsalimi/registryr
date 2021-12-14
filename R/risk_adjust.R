@@ -27,13 +27,13 @@ risk_adjust <- function(data, site_id, outcome, outcome_type, adj_vars) {
       modelr::add_predictions(model, type = "response")
 
     bm <-
-      fake_data %>%
+      data %>%
       dplyr::summarise(rate = sum(!!outcome) / n()) %>%
       dplyr::pull(rate)
 
     data_grouped <-
       data %>%
-      dplyr::group_by(site_id) %>%
+      dplyr::group_by(!!site_id) %>%
       dplyr::summarise(
         sum_pred = sum(pred),
         n_outcome = sum(!!outcome),
@@ -60,7 +60,7 @@ risk_adjust <- function(data, site_id, outcome, outcome_type, adj_vars) {
       modelr::add_residuals(model) %>%
       dplyr::select(site_id, outcome, pred, resid) %>%
       mutate(mean_outcome_overall := mean(!!outcome)) %>%
-      group_by(site_id, mean_outcome_overall) %>%
+      group_by(!!site_id, mean_outcome_overall) %>%
       summarise(
         n_cases = n(),
         mean_outcome := mean(!!outcome),
