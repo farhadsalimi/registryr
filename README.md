@@ -1,7 +1,7 @@
 # registryr
 The primary purpose of this package is to house an internal R package for the Clinical Outcomes Data Reporting
 and Research Program (CORRP) data analysts at Monash.
-This package contains numerous templates and functions to make the R analyses at CORRP happier and more efficient!
+This package contains numerous templates and functions to make the R analyses at CORRP easier and more efficient!
 
 This package includes several functions that helps with the analyses of Clinical Registry Data, therefore, it may be beneficial for the biostatisticans/analysts outside of CORRP as well.
 
