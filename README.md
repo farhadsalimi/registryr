@@ -10,7 +10,7 @@ This package also includes an RProject Templates that automatically setup folder
 ```console
 devtools::install_github('farhadsalimi/registryr')
 ```
-There is a CIDA project template (requires RStudio version 1.1) that sets up the project folder using the CORRP template with ReadMe files in each folder and an option to set up a git repository.
+There is a CORRP project template (requires RStudio version 1.1) that sets up the project folder using the CORRP template with ReadMe files in each folder and an option to set up a git repository.
 You can also save project metadata. This works has been heavilly inspired by *https://github.com/ledbettc/CIDAtools*
 
 Please feel free to file an issue request if you encounter errors or would like to request new features.
