@@ -1,4 +1,5 @@
 # registryr
+<img src="https://user-images.githubusercontent.com/17774002/145996517-dd2e0e3d-22be-43a7-b273-095ddaa39fa8.png" width="200" height="200" />
 The primary purpose of this package is to house an internal R package for the Clinical Outcomes Data Reporting
 and Research Program (CORRP) data analysts at Monash.
 This package contains numerous templates and functions to make the R analyses at CORRP easier and more efficient!
