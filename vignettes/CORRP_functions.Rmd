@@ -1,0 +1,47 @@
+---
+title: "CORRP specific functions"
+author: "Farhad Salimi"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{CORRP specific functions}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(tibble)
+library(knitr)
+library(dplyr)
+library(forcats)
+library(ggplot2)
+library(modelr)
+library(tidyr)
+library(registryr)
+library(scales)
+```
+
+## Overview
+
+This document summarises the functions available in the package that are for internal use at CORRP.
+
+## Registry Specific Colour Schemes
+You can use the `scale_..._corrp_..` to apply registry specifc colour schemes
+
+```{r, fig.width = 6}
+iris %>%
+  group_by(Species) %>% 
+  summarise(sepal_length_mean = mean(Sepal.Length)) %>%
+  ggplot(aes(x = Species, y = sepal_length_mean, fill = Species)) + 
+  geom_col() + 
+  scale_fill_corrp_discrete(palette = 'bcca')
+```
+
+Any changes to the registry specific colour schemes should be communicated with the package maintainer.
