@@ -2,9 +2,13 @@
 
 export(create_readme)
 export(fplot)
+export(outlier)
 export(population_pyramid)
 export(render_report)
 export(risk_adjust)
+export(scale_color_corrp_discrete)
+export(scale_fill_corrp_continuous)
+export(scale_fill_corrp_discrete)
 export(stat_funnelcontinuous)
 export(stat_funnelcount)
 export(stepwise)
