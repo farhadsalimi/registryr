@@ -4,16 +4,19 @@
 \alias{outlier}
 \title{Identifies outliers using a robust z-score}
 \usage{
-outlier(x, n = 3)
+outlier(data, n = 3)
 }
 \arguments{
-\item{x}{the numeric vector of interest}
+\item{data}{the data frame for which outliers need to be found}
 
 \item{n}{the number of median absolute deviations from the median outside which to assign a datum as an outlier (default = 3)}
 }
 \value{
-the outlier status (1, 0)
+the dataframe with outlier status (1, 0) for all the numerical variables
 }
 \description{
-This function takes one argument, the number of median absolute deviations outside which to assign a particular data point as an outlier.
+This function takes a dataframe and one argument (i.e. the number of median absolute deviations outside which to assign a particular data point as an outlier).
+}
+\examples{
+
 }
