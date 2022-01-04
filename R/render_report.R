@@ -37,8 +37,9 @@ render_report <- function(rmd, n_file, open_file = TRUE,
     encoding = "UTF-8",
     output_format = html_document(
       toc = TRUE,
-      toc_depth = 1,
-      code_folding = "hide"
+      toc_float = TRUE,
+      code_folding = "hide",
+      number_sections = TRUE
     ),
     output_file = file_name,
     output_dir = report_dir,
