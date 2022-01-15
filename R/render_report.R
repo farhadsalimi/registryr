@@ -21,14 +21,14 @@ render_report <- function(rmd, n_file, open_file = TRUE,
 
   # Generate the file name (without number) based on rmd file
   base_name <- sub(pattern = ".Rmd", replacement = "", x = basename(rmd_path))
-  html_name <- paste0(base_name, ".html")
+  html_name <- base_name
 
   if(missing(n_file)){
-    file_name <- html_name
+    file_name <- paste0(html_name, "_", Sys.Date(), ".html")
   } else {
     # Make nfiles with always 2 digits
     n_file <- ifelse(as.integer(n_file) < 10, paste0("0", n_file), n_file)
-    file_name <- paste0(n_file, "-", html_name)
+    file_name <- paste0(n_file, "_", html_name, "_", Sys.Date(), ".html")
   }
 
   # Produce the file. Simple wrapper of the render function
