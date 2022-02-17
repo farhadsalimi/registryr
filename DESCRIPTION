@@ -1,32 +1,41 @@
 Package: registryr
 Title: Functions for the Clinical Registries Analyses 
-Version: 0.0.1.2
+Version: 0.0.1.3
 Authors@R: 
     person(given = "Farhad",
            family = "Salimi",
            role = c("aut", "cre"),
            email = "farhad.salimi@monash.edu",
-           comment = c(ORCID = "YOUR-ORCID-ID"))
+           comment = c(ORCID = "0000-0003-3970-098X"))
 Description: This package includes a collection of functions for the analyses of clinical registry datasets.
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
 RoxygenNote: 7.1.2
 Imports: 
+    stats,
     dplyr,
     tibble,
     tidyr,
     ggplot2,
-    glue,
-    funnelR,
-    cowplot,
-    stats,
+    readxl,
     forcats,
+    stringr,
+    lubridate,
+    conflicted,
     modelr,
+    glue,
     scales,
+    janitor,
+    knitr,
+    rmarkdown,
+    kableExtra,
+    shiny,
     cowplot,
     ggpol,
-    rmarkdown
+    funnelR,
+    REDCapR,
+    validate
 Suggests: 
     knitr,
     rmarkdown
