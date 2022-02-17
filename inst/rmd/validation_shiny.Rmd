@@ -1,0 +1,945 @@
+---
+title: "Data validation"
+author: "CORRP Data Analysis Team (Farhad Salimi and Anh Tran)"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+params:
+  registry_token: xxx
+  holding_token: yyy
+  optout_token: zzz
+output: 
+  html_document:
+    df_print: paged
+---
+`
+```{r setup, include=FALSE}
+# Global chunk options
+knitr::opts_chunk$set(echo = FALSE, error = TRUE, message = FALSE, warning = FALSE)
+```
+
+```{r packages}
+library(REDCapR)
+library(dplyr)
+library(readxl)
+library(lubridate)
+library(stringr)
+library(knitr)
+library(validate)
+library(janitor)
+library(kableExtra)
+library(conflicted)
+
+conflict_prefer("filter", "dplyr")
+conflict_prefer("label", "Hmisc")
+```
+
+```{r import}
+# we need to add some sort of a check to give an error if not the right token is provided
+data_registry <- redcap_read(redcap_uri = "https://redcap.helix.monash.edu/api/",
+                              token = params$registry_token,
+                              export_data_access_groups = TRUE,
+                              raw_or_label = "label")$data
+
+data_holding <- redcap_read(redcap_uri = "https://redcap.helix.monash.edu/api/",
+                              token = params$holding_token,
+                              export_data_access_groups = TRUE,
+                              raw_or_label = "label")$data
+
+data_optout <- redcap_read(redcap_uri = "https://redcap.helix.monash.edu/api/",
+                              token = params$optout_token,
+                              export_data_access_groups = TRUE,
+                              raw_or_label = "label")$data
+```
+
+```{r merge}
+data_registry <-
+  data_registry %>%
+  mutate(across(c(opt_out_group),
+                as.character))
+
+data_holding <-
+  data_holding %>%
+  #dplyr::filter(data_completeness_check_complete == "Complete") %>%
+  mutate(across(c(cr_postcode, opt_out_group),
+                as.character))
+
+data <-
+  bind_rows(list(data_registry = data_registry, 
+                 data_holding = data_holding,
+                 data_optout = data_optout),
+            .id = "database") %>%
+  as_tibble() %>%
+  mutate(database = recode(database,
+                           "data_registry" = "ADNeT Registry",
+                           "data_holding" = "ADNeT Holding Database",
+                           "data_optout" = "ADNeT Opt-out Database"))
+```
+
+
+# Duplication check
+As duplicate subjects are possible across the three ADNeT databases, identifiable data 
+from each were merged into a single dataset.  
+  
+  
+The identifiable variables used to perform the duplication check were:
+
+* Record ID (record_id)
+* First name and surname (pt_firstname, pt_surname)
+* Date of birth (pt_dob)
+  
+  
+A two-tiered approach to identifying duplicates was employed:
+
+* Sensitive, but non-specific: Identical values in any one of the identifiable variables
+* Specific, but non-sensitive: Identical values across all of the identifiable
+variables except 'record_id'
+  
+  
+Identifiable data was converted into non-identifiable data in this report 
+(post-duplication check):
+
+* Names were converted into initials
+* Date of birth was converted into year of birth  
+
+```{r duplication_check} 
+data %>% 
+  confront(
+    validator(
+      `Unique ID` = is_unique(record_id),
+      `Unique Name` = is_unique(pt_firstname %>% str_to_title, pt_surname %>% str_to_title),
+      `Unique DOB` = is_unique(pt_dob),
+      
+      `Unique Personal Identifiers` = 
+        is_unique(pt_firstname %>% str_to_title, pt_surname %>% str_to_title, pt_dob)
+    )
+  ) %>% 
+  validate::summary() %>%
+  as_tibble() %>%
+  select(-expression) %>%
+  kable(longtable = TRUE, 
+        caption = "Duplicate check summary",
+        escape = TRUE,
+        booktabs = TRUE,
+        align = 'c')%>%
+  kable_styling(position = "center",
+                bootstrap_options = "striped",
+                # latex_options = c("HOLD_position", "repeat_header")
+                )
+```
+
+## Duplicate check 1
+The table below identifies any duplicate record IDs across any of the three databases,
+irrespective of whether they come from the same subject. This could occur due to 
+the same subject appearing in multiple databases or it could be due to two different
+subjects being erroneously given identical record IDs; the variables 'name' and
+'year of birth' are included in the table below to help establish which is the case.  
+
+
+  
+```{r duplication_check01}
+record_id_dup <-
+  data %>%
+  dplyr::filter(!is_unique(record_id)) %>%
+  arrange(record_id) %>%
+  transmute(
+    database = database,
+    record_id = record_id,
+    name = str_c(str_sub(pt_firstname, 1, 1), " ", str_sub(pt_surname, 1, 1)),
+    year_of_birth = year(pt_dob),
+    followup_enc___1 = followup_enc___1,
+    pt_base_id = pt_base_id
+  )
+
+record_id_dup %>%
+  kable(longtable = TRUE, caption = "Duplicate check 1",
+        escape = TRUE, booktabs = TRUE, align = 'c') %>%
+  add_header_above(
+    c("List of unique subjects with duplicate record IDs\n(an empty table indicates no duplicates)" = 6)
+  ) %>%
+  kable_styling(position = "center", 
+                bootstrap_options = "striped",
+                # latex_options = c("HOLD_position", "repeat_header")
+                )
+
+if(record_id_dup %>% nrow() != 0) {
+  record_id_dup <- record_id_dup %>% select(database, record_id)}
+```
+
+
+## Duplicate check 2
+The table below attempts to identify any duplicate subjects using the variable
+'name', irrespective of whether they have the same record ID.  
+
+
+```{r duplication_check02}
+name_dup <-
+  data %>%
+  dplyr::filter(!is_unique(pt_firstname %>% str_to_title, pt_surname %>% str_to_title)) %>%
+  arrange(pt_firstname, pt_surname) %>%
+  transmute(
+    database = database,
+    record_id = record_id,
+    name = str_c(str_sub(pt_firstname, 1, 1), " ", str_sub(pt_surname, 1, 1)),
+    year_of_birth = year(pt_dob),
+    followup_enc___1 = followup_enc___1,
+    pt_base_id = pt_base_id
+  )
+
+name_dup %>% 
+    kable(., longtable = TRUE, caption = "Duplicate check 2",
+         escape = TRUE, booktabs = TRUE, align = 'c') %>%
+    add_header_above(
+      c("List of duplicate names\n(an empty table indicates no duplicates)" = ncol(.))
+    ) %>%
+    kable_styling(position = "center", 
+                  bootstrap_options = "striped",
+                  latex_options = c("HOLD_position", "repeat_header"))
+
+if(name_dup %>% nrow() != 0) {
+  name_dup <- name_dup %>% select(database, record_id, name)}
+
+```
+
+
+## Duplicate check 3
+The table below attempts to identify any duplicate subjects using date of birth.
+This is generally not as specific as checking by name: for instance, former test cricket 
+captain and future Bunnings Warehouse ambassador, Steve Smith, and myself share 
+the exact same birthday, 02/06/1989, and would appear as duplicates under this paradigm.
+However, this approach has increased sensitivity for duplicates where names
+aren't recorded identically between entries (e.g. Jacob Egwunye vs Jake Egwunye)  
+  
+
+```{r duplication_check03}
+data %>%
+  dplyr::filter(!is_unique(pt_dob)) %>%
+  arrange(pt_dob) %>%
+  transmute(
+    database = database,
+    record_id = record_id,
+    name = str_c(str_sub(pt_firstname, 1, 1), " ", str_sub(pt_surname, 1, 1)),
+    year_of_birth = year(pt_dob)
+  ) %>%
+  kable(longtable = TRUE, 
+         escape = TRUE, booktabs = TRUE, align = 'c',
+        caption = "List of duplicate date of births\n(an empty table indicates no duplicates)") %>%
+  # add_header_above(
+  #   c("List of duplicate date of births\n(an empty table indicates no duplicates)" = 4)
+  # ) %>%
+  kable_styling(position = "center", 
+                bootstrap_options = "striped",
+                latex_options = c("HOLD_position", "repeat_header")) %>%
+  scroll_box(width = "100%", height = "1000px")
+```
+
+
+## Duplicate check 4
+The table below attempts to identify any duplicate subjects using both name
+and date of birth. This is the most specific, but least sensitive of the 
+duplicate checks.  
+  
+
+```{r duplication_check04}
+data %>%
+  dplyr::filter(!is_unique(pt_firstname %>% str_to_title, pt_surname %>% str_to_title, pt_dob)) %>%
+  arrange(pt_firstname, pt_surname, pt_dob) %>%
+  transmute(
+    database = database,
+    record_id = record_id,
+    name = str_c(str_sub(pt_firstname, 1, 1), " ", str_sub(pt_surname, 1, 1)),
+    year_of_birth = year(pt_dob)
+  ) %>%
+  kable(longtable = TRUE, caption = "Duplicate check 4",
+         escape = TRUE, booktabs = TRUE, align = 'c') %>%
+  add_header_above(
+    c("List of duplicate personal identifiers\n(an empty table indicates no duplicates)" = 4)
+  ) %>%
+  kable_styling(position = "center", 
+                bootstrap_options = "striped",
+                latex_options = c("HOLD_position", "repeat_header")) 
+```
+
+
+# Temporal validity check
+A series of temporal validity checks were performed to ensure that recorded
+datetimes of events followed a logical sequence. The following logical sequences
+were tested:  
+
+* V1: Referral date <= Initial appointment date <= Diagnosis date <= Today  
+
+* V2: PES creation date <= PES sent date <= Today  
+
+* V3: Data entry creation date <= Data entry completion date <= Today  
+
+
+```{r temporal_check}
+data %>% 
+  confront(
+    validator(
+      `Referral-Diagnosis Validity` = date_ref <= initial_appt & initial_appt <= date_dx & date_dx <= today(),
+      `PES Validity` = dt_pes_created <= dt_pes_sent & dt_pes_sent <= today(),
+      `Data entry Validity` = dt_commenced <= dt_completed & dt_completed - (60*60*24) <= today()
+    )
+  ) %>% 
+  validate::summary() %>% 
+  as_tibble %>%
+  select(-expression) %>%
+  kable(longtable = TRUE, caption = "Temporal validation summary",
+         escape = TRUE, booktabs = TRUE, align = 'c')  %>%
+  kable_styling(position = "center", 
+                bootstrap_options = "striped",
+                latex_options = c("HOLD_position", "repeat_header")) 
+```
+
+
+## Temporal validity check 1
+Referral date <= Initial appointment date <= Diagnosis date <= Today  
+  
+ 
+
+```{r temporal_check01}
+temporal_issue <-
+  data %>%
+  dplyr::filter(!(date_ref <= initial_appt & initial_appt <= date_dx & date_dx <= today())) %>%
+  transmute(
+    database = database,
+    record_id = record_id,
+    referral_date = date_ref,
+    initial_appointment = initial_appt,
+    diagnosis_date = date_dx,
+    today_date = today()
+  ) 
+
+temporal_issue %>%
+  kable(longtable = TRUE, caption = "Temporal validity check 1",
+         escape = TRUE, booktabs = TRUE, align = 'c') %>%
+  add_header_above(
+    c("List of invalid referral - initial appointment - diagnosis sequences\n(an empty table indicates no duplicates)" = 6)
+  ) %>%
+  kable_styling(position = "center", 
+                bootstrap_options = "striped",
+                latex_options = c("HOLD_position", "repeat_header")) 
+
+
+```
+
+## Temporal validity check 2
+PES creation date <= PES sent date <= Today  
+  
+ 
+
+```{r temporal_check02}
+data %>%
+  dplyr::filter(!(dt_pes_created <= dt_pes_sent & dt_pes_sent <= today())) %>%
+  transmute(
+    database = database,
+    record_id = record_id,
+    PES_created_date = dt_pes_created,
+    PES_sent_date = dt_pes_sent,
+    today_date = today()
+  ) %>%
+  kable(longtable = TRUE, caption = "Temporal validity check 2",
+         escape = TRUE, booktabs = TRUE, align = 'c') %>%
+  add_header_above(
+    c("List of invalid PES creation - PES send sequences\n(an empty table indicates no duplicates)" = 5)
+  ) %>%
+  kable_styling(position = "center",
+                bootstrap_options = "striped",
+                latex_options = c("HOLD_position", "repeat_header")) 
+```
+
+## Temporal validity check 3
+V3: Data entry creation date <= Data entry completion date <= Today  
+  
+ 
+
+```{r temporal_check03}
+data %>%
+  dplyr::filter(!(dt_commenced <= dt_completed & dt_completed - (60*60*24) <= today())) %>%
+  transmute(
+    database = database,
+    record_id = record_id,
+    dataentry_commence = dt_commenced,
+    dataentry_completed = dt_completed,
+    today_date = today()
+  ) %>%
+  kable(longtable = TRUE, caption = "Temporal validity check 3",
+         escape = TRUE, booktabs = TRUE, align = 'c') %>%
+  add_header_above(
+    c("List of invalid PES creation - PES send sequences\n(an empty table indicates no duplicates)" = 5)
+  ) %>%
+  kable_styling(position = "center",bootstrap_options = "striped",
+                latex_options = c("HOLD_position", "repeat_header")) 
+```
+
+
+# Survey validity check
+
+A set of criteria are required for patients in the ADNeT registry to be eligible
+for surveys or survey reminders. These criteria are as follows:  
+  
+* Baseline patient survey eligibility: Patient in ADNeT Registry, patient invitation sent no earlier than 16/01/2021, patient not dead, patient has opt-out capacity, patient has been communicated diagnosis, patient has not opted out and patient address known  
+  
+* Baseline carer survey eligibility: Patient in ADNeT Registry, patient invitation sent no earlier than 16/01/2021, patient not dead, and either:  
+  + Patient has opt-out capacity, patient has been communicated diagnosis, patient address known, patient has not opted out, carer identified, carer communicated diagnosis and carer address known (or is the same as the patient)  
+  + Patient does not have opt-out capacity, person responsible has been identified, person responsible has been communicated diagnosis, person responsible address is known, person responsible is also the carer, and patient has not opted out  
+  
+  
+* Baseline patient survey reminder eligibility: Patient in ADNeT Registry, patient invitation to registry sent no earlier than 16/01/2021, patient not dead, patient has opt-out capacity, patient has been communicated diagnosis, patient address known, patient has not opted out, time difference (in days) between current date and baseline patient survey sent date exceeds 28 days, and baseline patient survey data not entered  
+  
+* Baseline carer survey reminder eligibility: Patient in ADNeT Registry, patient invitation to registry sent no earlier than 16/01/2021, patient not dead, time difference between current date and baseline carer survey date exceeds 28 days, carer has not requested no further contact, baseline carer survey data not entered and either:  
+  + Patient has opt-out capacity, patient has been communicated diagnosis, patient address known, patient has not opted out, carer identified, carer communicated diagnosis and carer address known (or is the same as the patient)  
+  + Patient does not have opt-out capacity, person responsible has been identified, person responsible has been communicated diagnosis, person responsible address is known, person responsible is also the carer, and patient has not opted out  
+
+A series of logic checks were performed to ensure that all patients and carers with a baseline
+survey or survey reminder sent were in fact eligible to receive such a survey. Survey
+sent status was determined by a known date of sending the survey
+
+```{r survey_check}
+table1 <- 
+   data %>% 
+  dplyr::filter(database == "ADNeT Registry" & dt_pes_sent >= "2021-01-16" & 
+                  !is.na(dt_bs_ptsur_sent)
+                ) %>%
+  confront(
+    validator(
+      `Baseline patient survey validity` = is.na(pt_death) & pt_optoutcapacity == "Yes" &
+        dx_communicated == "Yes" & !is.na(pt_address) & opt_out_yes___1 == "Unchecked"
+    ) 
+  ) %>% 
+  validate::summary() %>% 
+  tibble()
+
+table2 <-
+  data %>% 
+  dplyr::filter(database == "ADNeT Registry" & dt_pes_sent >= "2021-01-16" & 
+                  !is.na(dt_bs_crsur_sent)
+                ) %>%
+  confront(
+    validator(
+      `Baseline carer survey validity` = 
+        ( 
+          (is.na(pt_death) & pt_optoutcapacity == "Yes" &
+          dx_communicated == "Yes" & !is.na(pt_address) & opt_out_yes___1 == "Unchecked" &
+         cr_identified == "Yes" & cr_dx_communicated == "Yes" & 
+           (!is.na(cr_address) | cr_address_same == "Yes")) | 
+          (is.na(pt_death) & pt_optoutcapacity == "No" & pr_identified == "Yes" &
+           !is.na(pr_address) & pr_also_cr == "Yes" & opt_out_yes___1 == "Unchecked")
+        )
+    ) 
+  ) %>% 
+  validate::summary() %>% 
+  tibble()
+
+table3 <-
+  data %>% 
+  dplyr::filter(database == "ADNeT Registry" & dt_pes_sent >= "2021-01-16" & 
+                  !is.na(dt_bs_ptsur_rem_sent)
+                ) %>%
+  mutate_at(vars(pt_health:pt_exp_expect), ~ factor(., levels(.) %>% na.omit)) %>% 
+  confront(
+    validator(
+      `Baseline patient survey reminder validity` = 
+        is.na(pt_death) & pt_optoutcapacity == "Yes" &
+          dx_communicated == "Yes" & !is.na(pt_address) & opt_out_yes___1 == "Unchecked" &
+        difftime(today(), dt_bs_ptsur_sent, units = "days") > 28 &
+        rowSums(!is.na(select(., pt_health:pt_exp_expect))) == 0
+    )
+  ) %>% 
+  validate::summary() %>% 
+  tibble()
+
+
+table4 <-
+    data %>% 
+    dplyr::filter(database == "ADNeT Registry" & dt_pes_sent >= "2021-01-16" & 
+                    !is.na(dt_bs_crsur_rem_sent)
+                  ) %>%
+    mutate_at(vars(cr_per_is_my:cr_identity, cr_health:cr_exp_expect), 
+              ~ factor(., levels(.) %>% na.omit)) %>% 
+    confront(
+      validator(
+        `Baseline carer survey reminder validity` = 
+        ( 
+          (is.na(pt_death) & pt_optoutcapacity == "Yes" &
+          dx_communicated == "Yes" & !is.na(pt_address) & opt_out_yes___1 == "Unchecked" &
+         cr_identified == "Yes" & cr_dx_communicated == "Yes" & 
+           (!is.na(cr_address) | cr_address_same == "Yes")) | 
+          (is.na(pt_death) & pt_optoutcapacity == "No" & pr_identified == "Yes" & pr_dx_communicated == "Yes" &
+           !is.na(pr_address) & pr_also_cr == "Yes" & opt_out_yes___1 == "Unchecked")
+        ) &
+          difftime(today(), dt_bs_crsur_sent, units = "days") > 28 &
+          rowSums(!is.na(select(., cr_per_is_my:cr_identity, cr_health:cr_exp_expect))) == 0 &
+          rowSums(select(., cr_current_state___1:cr_current_state___5) == "Checked") == 0
+      )
+    ) %>% 
+  validate::summary() %>% 
+  tibble()
+  
+bind_rows(table1, table2, table3, table4) %>%
+  select(-expression) %>%
+  kable(longtable = TRUE, caption = "Survey eligibility validation summary",
+         escape = TRUE, booktabs = TRUE, align = 'c')  %>%
+  kable_styling(position = "center", 
+                bootstrap_options = "striped",
+                latex_options = c("HOLD_position", "repeat_header"))
+```
+
+## Survey validity check 1
+Only patients considered eligible for a baseline patient survey can have a
+recorded survey sent.
+
+
+```{r survey_check01}
+data %>%
+  dplyr::filter(
+    database == "ADNeT Registry" & dt_pes_sent >= "2021-01-16" & !is.na(dt_bs_ptsur_sent) & 
+      !(`Baseline patient survey validity` = is.na(pt_death) & pt_optoutcapacity == "Yes" &
+        dx_communicated == "Yes" & !is.na(pt_address) & opt_out_yes___1 == "Unchecked")
+  ) %>%
+  select(record_id, dt_bs_ptsur_sent, pt_death, pt_optoutcapacity, dx_communicated, pt_address, opt_out_yes___1) %>%
+  mutate(pt_address = !is.na(pt_address)) %>%
+  kable(longtable = TRUE, 
+    col.names = str_replace_all(names(.), "_", " "),
+    caption = "List of incompatible baseline patient survey recipients\n(an empty table indicates no duplicates)",
+     escape = TRUE, booktabs = TRUE, align = 'c'
+  ) %>%
+  # add_header_above(
+  #   c("List of incompatible baseline patient survey recipients\n(an empty table indicates no duplicates)" = 7)
+  # ) %>%
+  kable_styling(position = "center", 
+                bootstrap_options = "striped",
+                latex_options = c("HOLD_position", "repeat_header"))  %>%
+  scroll_box(width = "100%", height = "1000px")
+```
+
+## Survey validity check 2
+Only carers considered eligible for a baseline carer survey can have a
+recorded survey sent.
+
+```{r survey_check02a}
+data %>%
+  dplyr::filter(
+    database == "ADNeT Registry" & dt_pes_sent >= "2021-01-16" & !is.na(dt_bs_crsur_sent) & 
+      !( 
+        (is.na(pt_death) & pt_optoutcapacity == "Yes" &
+        dx_communicated == "Yes" & !is.na(pt_address) & opt_out_yes___1 == "Unchecked" &
+       cr_identified == "Yes" & cr_dx_communicated == "Yes" & 
+         (!is.na(cr_address) | cr_address_same == "Yes")) | 
+        (is.na(pt_death) & pt_optoutcapacity == "No" & pr_identified == "Yes" &
+         !is.na(pr_address) & pr_also_cr == "Yes" & opt_out_yes___1 == "Unchecked")
+      )
+  ) %>%
+  select(record_id, dt_bs_crsur_sent, pt_death, pt_optoutcapacity, dx_communicated, pt_address, opt_out_yes___1,
+         cr_identified, cr_dx_communicated, cr_address, cr_address_same) %>%
+  mutate(
+    pt_address = !is.na(pt_address),
+    cr_address = !is.na(cr_address)
+  ) %>%
+  kable(longtable = TRUE, 
+    col.names = str_replace_all(names(.), "_", " "),
+    caption = "List of incompatible baseline carer survey recipients based on criteria 1\n(an empty table indicates no duplicates)",
+     escape = TRUE, booktabs = TRUE, align = 'c'
+  ) %>%
+  # add_header_above(
+  #   c("List of incompatible baseline carer survey recipients based on criteria 1\n(an empty table indicates no duplicates)" = 11)
+  # ) %>%
+  kable_styling(position = "center", 
+                bootstrap_options = "striped",
+                latex_options = c("HOLD_position", "repeat_header")) %>%
+  scroll_box(width = "100%", height = "1000px")
+```
+
+
+```{r survey_check02b}
+data %>%
+  dplyr::filter(
+    database == "ADNeT Registry" & dt_pes_sent >= "2021-01-16" & !is.na(dt_bs_crsur_sent) & 
+      !( 
+        (is.na(pt_death) & pt_optoutcapacity == "Yes" &
+        dx_communicated == "Yes" & !is.na(pt_address) & opt_out_yes___1 == "Unchecked" &
+       cr_identified == "Yes" & cr_dx_communicated == "Yes" & 
+         (!is.na(cr_address) | cr_address_same == "Yes")) | 
+        (is.na(pt_death) & pt_optoutcapacity == "No" & pr_identified == "Yes" &
+         !is.na(pr_address) & pr_also_cr == "Yes" & opt_out_yes___1 == "Unchecked")
+      )
+  ) %>%
+  select(record_id, dt_bs_crsur_sent, pt_death, pt_optoutcapacity, pr_identified, pr_address,
+         pr_also_cr, opt_out_yes___1) %>%
+  mutate(
+    pr_address = !is.na(pr_address)
+  ) %>%
+  kable(longtable = TRUE, 
+    col.names = str_replace_all(names(.), "_", " "),
+    caption = "List of incompatible baseline carer survey recipients based on criteria 2\n(an empty table indicates no duplicates)",
+     escape = TRUE, booktabs = TRUE, align = 'c'
+  ) %>%
+  # add_header_above(
+  #   c("List of incompatible baseline carer survey recipients based on criteria 2\n(an empty table indicates no duplicates)" = 8)
+  # ) %>%
+  kable_styling(position = "center",
+                bootstrap_options = "striped",
+                latex_options = c("HOLD_position", "repeat_header")) %>%
+  scroll_box(width = "100%", height = "1000px")
+```
+
+## Survey validity check 3
+Only patients considered eligible for a baseline patient survey reminder can have a
+recorded survey reminder sent.
+
+ 
+
+```{r survey_check03}
+data %>%
+  mutate_at(vars(pt_health:pt_exp_expect), ~ factor(., levels(.) %>% na.omit)) %>% 
+  dplyr::filter(
+    database == "ADNeT Registry" & dt_pes_sent >= "2021-01-16" & !is.na(dt_bs_ptsur_rem_sent) & 
+      !(is.na(pt_death) & pt_optoutcapacity == "Yes" &
+          dx_communicated == "Yes" & !is.na(pt_address) & opt_out_yes___1 == "Unchecked" &
+        difftime(today(), dt_bs_ptsur_sent, units = "days") > 28 &
+        rowSums(!is.na(select(., pt_health:pt_exp_expect))) == 0)
+  ) %>%
+  select(record_id, dt_bs_ptsur_rem_sent, pt_death, pt_optoutcapacity, dx_communicated, pt_address, opt_out_yes___1,
+         dt_bs_ptsur_sent, pt_health:pt_exp_expect) %>%
+  mutate(
+    pt_address = !is.na(pt_address),
+    n_ptsur_data = rowSums(!is.na(select(., pt_health:pt_exp_expect)))
+  ) %>%
+  select(-(pt_health:pt_exp_expect)) %>%
+  kable(longtable = TRUE, 
+    col.names = str_replace_all(names(.), "_", " "),
+    caption = "List of incompatible baseline patient survey reminder recipients\n(an empty table indicates no duplicates)",
+     escape = TRUE, booktabs = TRUE, align = 'c'
+  ) %>%
+  # add_header_above(
+  #   c("List of incompatible baseline patient survey reminder recipients\n(an empty table indicates no duplicates)" = 9)
+  # ) %>%
+  kable_styling(position = "center",
+                bootstrap_options = "striped",
+                latex_options = c("HOLD_position", "repeat_header")) %>%
+  scroll_box(width = "100%", height = "1000px") %>%
+  footnote(general = "'n ptsur data' is a derived variable corresponding to the number of baseline patient survey questions answered")
+```
+
+## Survey validity check 4
+Only carers considered eligible for a baseline carer survey can have a
+recorded survey sent.
+
+ 
+
+```{r survey_check04a}
+data %>%
+  mutate_at(vars(cr_per_is_my:cr_identity, cr_health:cr_exp_expect), 
+              ~ factor(., levels(.) %>% na.omit)) %>% 
+  dplyr::filter(
+    database == "ADNeT Registry" & dt_pes_sent >= "2021-01-16" & !is.na(dt_bs_crsur_rem_sent) & 
+      !(
+        ( 
+        (is.na(pt_death) & pt_optoutcapacity == "Yes" &
+          dx_communicated == "Yes" & !is.na(pt_address) & opt_out_yes___1 == "Unchecked" &
+         cr_identified == "Yes" & cr_dx_communicated == "Yes" & 
+           (!is.na(cr_address) | cr_address_same == "Yes")) | 
+          (is.na(pt_death) & pt_optoutcapacity == "No" & pr_identified == "Yes" & pr_dx_communicated == "Yes" &
+           !is.na(pr_address) & pr_also_cr == "Yes" & opt_out_yes___1 == "Unchecked")
+        ) &
+          difftime(today(), dt_bs_crsur_sent, units = "days") > 28 &
+          rowSums(!is.na(select(., cr_per_is_my:cr_identity, cr_health:cr_exp_expect))) == 0 &
+          rowSums(select(., cr_current_state___1:cr_current_state___5) == "Checked") == 0
+      )
+  ) %>%
+  select(record_id, dt_bs_crsur_rem_sent, pt_death, pt_optoutcapacity, dx_communicated, pt_address, opt_out_yes___1,
+         cr_identified, cr_dx_communicated, cr_address, cr_address_same,
+         dt_bs_crsur_sent, cr_per_is_my:cr_exp_expect) %>%
+  mutate(
+    pt_address = !is.na(pt_address),
+    cr_address = !is.na(cr_address),
+    n_crsur_data = rowSums(!is.na(select(., cr_per_is_my:cr_identity, cr_health:cr_exp_expect))) +
+      rowSums(select(., cr_current_state___1:cr_current_state___5) == "Checked")
+  ) %>%
+  select(-(cr_per_is_my:cr_identity)) %>%
+  select(-(cr_health:cr_exp_expect)) %>%
+  select(-(cr_current_state___1:cr_current_state___5)) %>%
+  kable(longtable = TRUE, col.names = str_replace_all(names(.), "_", " "),
+        caption = "List of incompatible baseline carer survey reminder recipients based on criteria 1\n(an empty table indicates no duplicates)",
+         escape = TRUE, booktabs = TRUE, align = 'c') %>%
+  # add_header_above(
+  #   c("List of incompatible baseline carer survey reminder recipients based on criteria 1\n(an empty table indicates no duplicates)" = 13)
+  # ) %>%
+  kable_styling(position = "center",
+                bootstrap_options = "striped",
+                latex_options = c("HOLD_position", "repeat_header"))  %>% 
+  scroll_box(width = "100%", height = "1000px") %>%
+  # column_spec(1:11, width = "1cm") %>%
+  footnote(general = "'n crsur data' is a derived variable corresponding to the number of baseline carer survey questions answered")
+```
+
+ 
+
+```{r survey_check04b}
+data %>%
+  mutate_at(vars(cr_per_is_my:cr_identity, cr_health:cr_exp_expect), 
+              ~ factor(., levels(.) %>% na.omit)) %>% 
+  dplyr::filter(
+    database == "ADNeT Registry" & dt_pes_sent >= "2021-01-16" & !is.na(dt_bs_crsur_rem_sent) & 
+      !(
+        ( 
+        (is.na(pt_death) & pt_optoutcapacity == "Yes" &
+          dx_communicated == "Yes" & !is.na(pt_address) & opt_out_yes___1 == "Unchecked" &
+         cr_identified == "Yes" & cr_dx_communicated == "Yes" & 
+           (!is.na(cr_address) | cr_address_same == "Yes")) | 
+          (is.na(pt_death) & pt_optoutcapacity == "No" & pr_identified == "Yes" & pr_dx_communicated == "Yes" &
+           !is.na(pr_address) & pr_also_cr == "Yes" & opt_out_yes___1 == "Unchecked")
+        ) &
+          difftime(today(), dt_bs_crsur_sent, units = "days") > 28 &
+          rowSums(!is.na(select(., cr_per_is_my:cr_identity, cr_health:cr_exp_expect))) == 0 &
+          rowSums(select(., cr_current_state___1:cr_current_state___5) == "Checked") == 0
+      )
+  ) %>%
+  select(record_id, dt_bs_crsur_rem_sent, pt_death, pt_optoutcapacity, pr_identified, 
+         pr_dx_communicated, pr_address, pr_also_cr, opt_out_yes___1,
+         dt_bs_crsur_sent, cr_per_is_my:cr_exp_expect) %>%
+  mutate(
+    pr_address = !is.na(pr_address),
+    n_crsur_data = rowSums(!is.na(select(., cr_per_is_my:cr_identity, cr_health:cr_exp_expect))) +
+      rowSums(select(., cr_current_state___1:cr_current_state___5) == "Checked")
+  ) %>%
+  select(-(cr_per_is_my:cr_identity)) %>%
+  select(-(cr_health:cr_exp_expect)) %>%
+  select(-(cr_current_state___1:cr_current_state___5)) %>%
+  kable(longtable = TRUE, 
+    col.names = str_replace_all(names(.), "_", " "),
+    caption = "List of incompatible baseline carer survey reminder recipients based on criteria 2\n(an empty table indicates no duplicates)",
+     escape = TRUE, booktabs = TRUE, align = 'c'
+  ) %>%
+  # add_header_above(
+  #   c("List of incompatible baseline carer survey reminder recipients based on criteria 2\n(an empty table indicates no duplicates)" = 11)
+  # ) %>%
+  kable_styling(position = "center",
+                bootstrap_options = "striped",
+                latex_options = c("HOLD_position", "repeat_header")) %>% 
+  scroll_box(width = "100%", height = "1000px") %>%
+  # column_spec(1:11, width = "1cm") %>%
+  footnote(general = "'n crsur data' is a derived variable corresponding to the number of baseline carer survey questions answered")
+```
+
+# Missing mandatory data check
+Several items on the questionnaire are either mandatory fields, or become 
+mandatory fields if a particular answer is given to another question.
+
+```{r mandatory_check}
+bind_rows(
+  
+  data %>% 
+    dplyr::filter(dx == "MCI") %>%
+    confront(
+      validator(
+        `Missing MCI subtype` = !is.na(dx_mci_subtype)
+      )
+    ) %>% 
+    validate::summary() %>%
+    select(-expression),
+  
+  data %>% 
+    dplyr::filter(dx == "Dementia") %>%
+    confront(
+      validator(
+        `Missing dementia subtype` =
+            dx_dem_subtype___1 == "Checked" |
+            dx_dem_subtype___2 == "Checked" |
+            dx_dem_subtype___3 == "Checked" |
+            dx_dem_subtype___4 == "Checked" |
+            dx_dem_subtype___5 == "Checked" |
+            dx_dem_subtype___6 == "Checked" |
+            dx_dem_subtype___7 == "Checked" |
+            dx_dem_subtype___8 == "Checked" |
+            dx_dem_subtype___9 == "Checked" |
+            dx_dem_subtype___10 == "Checked" |
+            dx_dem_subtype___11 == "Checked" |
+            dx_dem_subtype___88 == "Checked" |
+            dx_dem_subtype___99 == "Checked"
+      )
+    ) %>% 
+    validate::summary() %>%
+    select(-expression)
+) %>%
+  kable(longtable = TRUE, caption = "Missing mandatory data check summary",
+         escape = TRUE, booktabs = TRUE, align = 'c') %>%
+  kable_styling(position = "center", 
+                bootstrap_options = "striped",
+                latex_options = c("HOLD_position", "repeat_header"))
+```
+
+```{r mandatory_check01}
+data %>%
+  dplyr::filter(
+    dx == "Dementia",
+    !(
+      dx_dem_subtype___1 == "Checked" |
+      dx_dem_subtype___2 == "Checked" |
+      dx_dem_subtype___3 == "Checked" |
+      dx_dem_subtype___4 == "Checked" |
+      dx_dem_subtype___5 == "Checked" |
+      dx_dem_subtype___6 == "Checked" |
+      dx_dem_subtype___7 == "Checked" |
+      dx_dem_subtype___8 == "Checked" |
+      dx_dem_subtype___9 == "Checked" |
+      dx_dem_subtype___10 == "Checked" |
+      dx_dem_subtype___11 == "Checked" |
+      dx_dem_subtype___88 == "Checked" |
+      dx_dem_subtype___99 == "Checked"
+    )
+  ) %>%
+  transmute(
+    database = database,
+    record_id = record_id,
+    dx = dx,
+    n_dx_dem = (dx_dem_subtype___1 == "Checked") +
+      (dx_dem_subtype___2 == "Checked") +
+      (dx_dem_subtype___3 == "Checked") +
+      (dx_dem_subtype___4 == "Checked") +
+      (dx_dem_subtype___5 == "Checked") +
+      (dx_dem_subtype___6 == "Checked") +
+      (dx_dem_subtype___7 == "Checked") +
+      (dx_dem_subtype___8 == "Checked") +
+      (dx_dem_subtype___9 == "Checked") +
+      (dx_dem_subtype___10 == "Checked") +
+      (dx_dem_subtype___11 == "Checked") +
+      (dx_dem_subtype___88 == "Checked"),
+    dx_dem_subtype___99 = dx_dem_subtype___99
+  ) %>%
+  kable(longtable = TRUE, caption = "Missing mandatory data check 2",
+         escape = TRUE, booktabs = TRUE, align = 'c') %>%
+  add_header_above(
+    c("List of invalid dementia subtype status\n(an empty table indicates no duplicates)" = 5)
+  ) %>%
+  kable_styling(position = "center", 
+                bootstrap_options = "striped",
+                latex_options = c("HOLD_position", "repeat_header"))
+```
+
+data
+
+
+# Invalid 'other' category assignment
+Some items in the questionnaire provide pre-specified categories with the option
+to select 'Other' and subsequently provide a custom input that wasn't pre-specified.
+It is possible to erroneously select other and provide a text input that is in fact
+one of the pre-specified categories. 
+
+```{r other_check}
+data %>%
+  dplyr::filter(str_detect(pt_spokenlanguage_other,
+                                         str_c(pt_spokenlanguage %>% 
+                                                 unique() %>% as.character() %>%
+                                                 na.omit(), collapse = "|")
+                                         )
+  ) %>%
+  select(database, record_id, pt_spokenlanguage, pt_spokenlanguage_other) %>%
+  kable(longtable = TRUE, caption = "Invalid 'other' category check 1",
+         escape = TRUE, booktabs = TRUE, align = 'c') %>%
+  add_header_above(
+    c("List of invalid custom spoken language\n(an empty table indicates no duplicates)" = 4)
+  ) %>%
+  kable_styling(position = "center", 
+                bootstrap_options = "striped",
+                latex_options = c("HOLD_position", "repeat_header"))
+```
+
+```{r other_check01}
+data %>%
+  dplyr::filter(str_detect(pt_countryofbirth_other,
+                                         str_c(pt_countryofbirth %>% 
+                                                 unique() %>% as.character() %>%
+                                                 na.omit(), collapse = "|")
+                                         )
+  ) %>%
+  select(database, record_id, pt_countryofbirth, pt_countryofbirth_other) %>%
+  kable(longtable = TRUE, caption = "Invalid 'other' category check 2",
+         escape = TRUE, booktabs = TRUE, align = 'c') %>%
+  add_header_above(
+    c("List of invalid custom country of birth\n(an empty table indicates no duplicates)" = 4)
+  ) %>%
+  kable_styling(position = "center", latex_options = c("HOLD_position", "repeat_header"))
+```
+
+# Distribution check for continuous variables
+Identify outliers
+
+## ADNeT Registry database {.tabset .tabset-fade .tabset-pills}
+### Dates
+```{r}
+vars <- c("dt_commenced", "pt_dob", "date_ref", "initial_appt", "date_dx")
+
+data %>% 
+  filter(database == "ADNeT Registry") %>% 
+  select(record_id, all_of(vars)) %>%
+  mutate(across(-record_id, as_date),
+         across(-record_id, as.numeric)) %>%
+  registryr::outlier(n = 4) %>%
+  mutate(pt_dob = as_date(pt_dob),
+         dt_commenced = as_date(dt_commenced),
+         date_ref = as_date(date_ref),
+         date_dx = as_date(date_dx),
+         initial_appt = as_date(initial_appt)) %>%
+  kbl(booktabs = TRUE,
+      col.names = str_replace_all(names(.), "_", " "),
+      escape = TRUE,
+      align = "c") %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+### Postcode
+```{r}
+vars <- c("pt_postcode", "pr_postcode")
+
+data %>% 
+  dplyr::filter(database == "ADNeT Registry") %>% 
+  select(record_id, all_of(vars)) %>%
+  mutate(across(-record_id, as.numeric)) %>%
+  registryr::outlier(n = 4) %>%
+  kbl(booktabs = TRUE,
+      col.names = str_replace_all(names(.), "_", " "),
+      escape = TRUE,
+      align = "c") %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+### Age
+```{r}
+vars <- c("pt_age_diagnosis")
+
+data %>% 
+  dplyr::filter(database == "ADNeT Registry") %>% 
+  select(record_id, all_of(vars)) %>%
+  mutate(across(-record_id, as.numeric)) %>%
+  registryr::outlier(n = 4) %>%
+  kbl(booktabs = TRUE,
+      col.names = str_replace_all(names(.), "_", " "),
+      escape = TRUE,
+      align = "c") %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+# Summary
+## Duplicates
+### Record ID duplicates
+```{r}
+record_id_dup %>%
+  kbl(booktabs = TRUE) %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+### Name duplicates
+```{r}
+name_dup %>%
+  kbl(booktabs = TRUE) %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+## Temporal issues
+```{r}
+temporal_issue %>%
+  kbl(booktabs = TRUE) %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+
