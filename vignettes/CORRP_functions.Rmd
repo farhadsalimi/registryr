@@ -33,15 +33,15 @@ library(scales)
 This document summarises the functions available in the package that are for internal use at CORRP.
 
 ## Registry Specific Colour Schemes
-You can use the `scale_..._corrp_..` to apply registry specifc colour schemes
 
 ```{r, fig.width = 6}
+theme_define("adnet")
+
 iris %>%
   group_by(Species) %>% 
   summarise(sepal_length_mean = mean(Sepal.Length)) %>%
   ggplot(aes(x = Species, y = sepal_length_mean, fill = Species)) + 
-  geom_col() + 
-  scale_fill_corrp_discrete(palette = 'bcca')
+  geom_col()
 ```
 
 Any changes to the registry specific colour schemes should be communicated with the package maintainer.
