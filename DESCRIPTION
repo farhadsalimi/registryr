@@ -32,7 +32,10 @@ Imports:
     kableExtra,
     shiny,
     cowplot,
+    thematic,
     ggpol,
+    showtext,
+    ragg,
     funnelR,
     REDCapR,
     validate
