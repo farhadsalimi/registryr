@@ -48,7 +48,7 @@ risk_adjust <- function(data, site_id, outcome, outcome_type, adj_vars) {
         )
       )
 
-    data_grouped <- data_grouped %>% dplyr::select(site_id, n_outcome, n_outcome_adjusted)
+    data_grouped <- data_grouped %>% dplyr::select(site_id, n_cases, n_outcome, n_outcome_adjusted)
     return(data_grouped)
   }
 
@@ -71,6 +71,6 @@ risk_adjust <- function(data, site_id, outcome, outcome_type, adj_vars) {
       mutate(
         mean_outcome_adj = (mean_outcome/mean_outcome_pred)*mean_outcome_overall
       ) %>%
-      select(site_id, mean_outcome, mean_outcome_adj, sd_outcome)
+      select(site_id, n_cases, mean_outcome, mean_outcome_adj, sd_outcome)
   }
 }
