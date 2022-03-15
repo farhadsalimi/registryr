@@ -25,6 +25,7 @@ Imports:
     conflicted,
     modelr,
     glue,
+    here,
     scales,
     janitor,
     knitr,
@@ -38,7 +39,8 @@ Imports:
     ragg,
     funnelR,
     REDCapR,
-    validate
+    validate,
+    getPass
 Suggests: 
     knitr,
     rmarkdown
