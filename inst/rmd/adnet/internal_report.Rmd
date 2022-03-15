@@ -1,0 +1,1004 @@
+---
+title: "Internal Report: `r params$site_name`"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+author: "CORRP Data Analysis Team (Farhad Salimi and Anh Tran)"
+output:
+  word_document: default
+always_allow_html: true
+params:
+  registry_token: xxxx
+  holding_token: yyyy
+  optout:  zzzz
+  site_name: all
+  site_dag: xxx
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.showtext = TRUE)
+
+library(pacman)
+p_load(
+  tidyverse, lubridate, cowplot, arsenal, gtsummary, scales, knitr, flextable, janitor,
+  registryr,
+  conflicted,
+  readxl,
+  kableExtra,
+  REDCapR
+)
+
+theme_define("adnet")
+
+conflict_prefer("filter", "stats")
+```
+
+```{r, child="cleaning.Rmd"}
+
+```
+
+```{r data}
+data <- data_cleaned
+eval_next <- str_to_lower(params$site_name) != "all"
+sites_dag <- read_excel(here::here(params$site_dag))
+```
+
+```{r subset the data, eval = eval_next}
+data_all <-
+  data %>%
+  rename(site_name = redcap_data_access_group) %>%
+  mutate(category = if_else(site_name == params$site_name,
+    params$site_name,
+    "Other sites"
+  ))
+data <-
+  data %>%
+  rename(site_name = redcap_data_access_group) %>%
+  dplyr::filter(site_name == params$site_name)
+```
+
+```{r, eval = !eval_next}
+data_all <-
+  data %>%
+  rename(site_name = redcap_data_access_group) %>%
+  mutate(category = "All sites")
+
+data <-
+  data %>%
+  rename(site_name = redcap_data_access_group)
+```
+
+# RECRUITMENT
+
+## Overall recruitment
+
+```{r}
+n_participating <- data_all %>% nrow()
+
+n_adnet <- data_all %>%
+  dplyr::filter(database == "ADNeT Registry") %>%
+  nrow()
+
+n_holding <- 
+  data_all %>%
+  dplyr::filter(database == "ADNeT Holding Database" &
+    data_completeness___1 == "Checked") %>%
+  nrow()
+
+n_optout <- data_all %>%
+  dplyr::filter(database == "ADNeT Opt-out Database") %>%
+  nrow()
+
+n_sites <- 
+  data_all %>%
+  select(site_name) %>%
+  distinct() %>%
+  nrow()
+```
+
+The total number of patients across the three ADNeT databases: `r n_participating` from `r n_sites` sites
+
+-   Of these patients, `r n_adnet` (`r round(100*n_adnet/n_participating, 1)`%) are in the ADNeT registry
+
+-   Of these patients, `r n_holding` (`r round(100*n_holding/n_participating, 1)`%) are in the ADNeT Holding database (excluding unsubmitted records)
+
+-   Of these patients, `r n_optout` (`r round(100*n_optout/n_participating, 1)`%) are in the ADNeT Opt-out database
+
+A breakdown of participation by database and state/site can be seen in the table below:
+
+```{r}
+table <-
+  data_all %>%
+  count(site_state, database) %>%
+  mutate(site_state = fct_explicit_na(site_state, "Missing"),
+         site_state = fct_reorder(site_state, n, sum),
+         site_state = fct_relevel(site_state, "Missing", after = 0),
+         n_tot = sum(n))%>%
+  pivot_wider(names_from = database, values_from = n)%>%
+  adorn_totals("row") %>%
+  pivot_longer(-c(site_state, n_tot)) 
+
+table <-
+  table %>%
+  mutate(n_tot = if_else(site_state == "Total", NA_integer_, n_tot)) %>%
+  fill(n_tot, .direction = "downup") %>%
+  mutate(pct = percent(value / n_tot, accuracy = 1),
+         n_pct = glue::glue("{comma(value)} ({pct})"))
+
+table %>%
+  select(State = site_state,
+         Database = name,
+         `N (%)` = n_pct) %>%
+  pivot_wider(names_from = Database, values_from = `N (%)`) %>%
+  arrange(desc(parse_number(`ADNeT Registry`))) %>%
+  flextable()
+  
+```
+
+```{r recruitment_breakdown}
+table <-
+  data_all %>%
+  dplyr::filter(data_completeness___1 == "Checked" | is.na(data_completeness___1)) %>%
+  mutate(site_state = fct_explicit_na(site_state, "Missing")) %>%
+  select(dt_completed, site_state, site_name, database, opt_out_timepoint, opt_out_yes___1) %>%
+  mutate(
+    database = if_else(
+      opt_out_timepoint == "At time of diagnosis" | opt_out_yes___1 == "Checked",
+      "ADNeT Opt-out Database",
+      as.character(database),
+      as.character(database)
+      )) %>%
+  select(-c(opt_out_timepoint, opt_out_yes___1)) %>%
+  mutate(database = as_factor(database))
+
+table <-
+  table %>%
+  group_by(site_state, site_name, database) %>%
+  mutate(first_record_submitted = as_date(min(dt_completed))) %>%
+  ungroup() %>%
+  select(-dt_completed)
+
+table <-
+  table %>%
+  count(site_state, site_name, first_record_submitted, database, .drop = FALSE) %>%
+  group_by(site_state) %>%
+  mutate(pct = percent(n / sum(n), accuracy = 0.1)) %>%
+  ungroup() %>%
+  mutate(n_pct = glue::glue("{comma(n, accuracy = 1)} ({pct})")) %>%
+  select(-c(n, pct))
+
+table %>%
+  pivot_wider(names_from = database, values_from = n_pct) %>%
+  arrange(site_state, desc(parse_number(`ADNeT Registry`)))%>%
+  rename(Site = site_name,
+         Jurisdiction = site_state,
+         `First record submitted on` = first_record_submitted) %>%
+  flextable()
+```
+
+## Opt-out rate
+
+```{r, fig.width = 7, dpi = 300}
+n_optout_numerator <- 
+  data_all %>%
+  dplyr::filter(opt_out_yes___1 == "Checked" | database == "ADNeT Opt-out Database") %>%
+  nrow()
+
+n_optout_denominator <- 
+  data_all %>%
+  dplyr::filter(!is.na(opt_out_group) | opt_out_yes___1 == "Checked" | database == "ADNeT Opt-out Database") %>%
+  nrow()
+
+graph_df <-
+  data_all %>%
+  dplyr::filter(!is.na(opt_out_group) | opt_out_yes___1 == "Checked" | database == "ADNeT Opt-out Database") %>%
+  mutate(year_month = as_date(round_date(dt_commenced, "month"))) %>%
+  count(year_month, opt_out_yes___1, .drop = FALSE) %>%
+  group_by(year_month) %>%
+  mutate(rate = n / sum(n)) %>%
+  dplyr::filter(opt_out_yes___1 == "Checked") %>% 
+  ungroup()
+
+last_rate <-
+  graph_df %>%
+  slice_max(year_month) %>%
+  pull(rate)
+
+overall_rate <- percent(n_optout_numerator / n_optout_denominator, accuracy = 1)
+  
+graph_df %>%
+  ggplot(aes(x = year_month, y = rate)) +
+  geom_line() +
+  scale_x_date(expand = c(0,0)) +
+  scale_y_continuous(limits = c(0, NA),
+                     labels = percent,
+                     sec.axis = dup_axis(name = "",
+                                         breaks = c(last_rate))) +
+  labs(x = "Date",
+       y = "Opt-out rate",
+       caption = glue::glue("Overall opt-out rate is {overall_rate}"))
+```
+
+\newpage
+
+# Site specific recruitment
+
+## Recruitment (Registry database)
+
+```{r specific recruitment, fig.width = 9, fig.height = 8, dpi = 300, fig.showtext = TRUE}
+n_missing_dateoftransfer <-
+  data %>%
+  dplyr::filter(database == "ADNeT Registry",
+                is.na(date_of_data_transfer))  %>%
+  nrow()
+
+graph_df <-
+  data %>%
+  dplyr::filter(database == "ADNeT Registry") %>%
+  mutate(
+    date_of_data_transfer = as_date(date_of_data_transfer),
+    date_of_data_transfer = round_date(date_of_data_transfer, "month")
+  ) %>%
+  arrange(date_of_data_transfer) %>%
+  select(date_of_data_transfer) %>%
+  drop_na()
+
+graph_df <-
+  graph_df %>%
+  mutate(n_tot = row_number()) %>%
+  group_by(date_of_data_transfer) %>%
+  mutate(n_permonth = row_number()) %>%
+  ungroup()
+
+graph_df <-
+  graph_df %>%
+  group_by(date_of_data_transfer) %>%
+  summarise(across(where(is.numeric), max)) %>%
+  mutate(n_tot = n_tot - n_permonth) %>%
+  pivot_longer(-date_of_data_transfer) %>%
+  mutate(name = recode_factor(name,
+    n_tot = "Cumulative",
+    n_permonth = "Newly added"
+  ))
+
+graph_df <-
+  graph_df %>%
+  group_by(date_of_data_transfer) %>%
+  mutate(n_tot = sum(value))
+
+graph_df %>%
+  ggplot(aes(
+    x = date_of_data_transfer,
+    y = value,
+    fill = name
+  )) +
+  geom_col(
+    # fill = "#00A480",
+    col = "black"
+  ) +
+  geom_text(
+    data = graph_df %>% dplyr::filter(name == "Cumulative"),
+    aes(
+      label = comma(n_tot, accuracy = 1),
+      y = n_tot
+    ),
+    vjust = -1
+  ) +
+  labs(
+    x = "Date",
+    y = "Cumulative number of participants",
+    fill = " ",
+    caption = glue::glue("There are {n_missing_dateoftransfer} cases with missing date of data transfer")
+  ) +
+  scale_y_continuous(sec.axis = dup_axis(name = "")) +
+  theme(legend.position = "bottom",
+        legend.box = "horizontal")
+```
+
+```{r}
+graph_df %>%
+  dplyr::filter(name == "Newly added") %>%
+  ggplot(aes(
+    x = date_of_data_transfer,
+    y = value
+  )) +
+  geom_col(
+    fill = "#00A480",
+    col = "black"
+  ) +
+  geom_text(
+    data = graph_df %>% dplyr::filter(name == "Newly added"),
+    aes(
+      label = comma(value, accuracy = 1),
+      y = value
+    ),
+    vjust = -1
+  ) +
+  labs(
+    x = "Date",
+    y = "Number of newly added participants",
+    fill = " ",
+    caption = glue::glue("There are {n_missing_dateoftransfer} cases with missing date of data transfer")
+  ) +
+  scale_y_continuous(sec.axis = dup_axis(name = "")) +
+  theme(legend.position = "bottom",
+        legend.box = "horizontal")
+```
+
+## Submission (All databases)
+
+```{r all databse recruitment, fig.width = 9, fig.height = 8, dpi = 300, fig.showtext = TRUE}
+n_missing_completion_date <-
+  data %>%
+  dplyr::filter(is.na(dt_completed)) %>%
+  nrow()
+
+graph_df <-
+  data %>%
+  mutate(
+    dt_completed = as_date(dt_completed),
+    dt_completed = round_date(dt_completed, "month")
+  ) %>%
+  arrange(dt_completed) %>%
+  select(dt_completed) %>%
+  drop_na()
+
+graph_df <-
+  graph_df %>%
+  mutate(n_tot = row_number()) %>%
+  group_by(dt_completed) %>%
+  mutate(n_permonth = row_number()) %>%
+  ungroup()
+
+graph_df <-
+  graph_df %>%
+  group_by(dt_completed) %>%
+  summarise(across(where(is.numeric), max)) %>%
+  mutate(n_tot = n_tot - n_permonth) %>%
+  pivot_longer(-dt_completed) %>%
+  mutate(name = recode_factor(name,
+    n_tot = "Cumulative",
+    n_permonth = "Newly added"
+  ))
+
+graph_df <-
+  graph_df %>%
+  group_by(dt_completed) %>%
+  mutate(n_tot = sum(value))
+
+graph_df %>%
+  ggplot(aes(
+    x = dt_completed,
+    y = value,
+    fill = name
+  )) +
+  geom_col(
+    # fill = "#00A480",
+    col = "black"
+  ) +
+  geom_text(
+    data = graph_df %>% dplyr::filter(name == "Cumulative"),
+    aes(
+      label = comma(n_tot, accuracy = 1),
+      y = n_tot
+    ),
+    vjust = -1
+  ) +
+  labs(
+    x = "Date",
+    y = "Cumulative number of participants",
+    fill = " ",
+    caption = glue::glue("There are {n_missing_completion_date} cases with missing date of completion")
+  ) +
+  scale_y_continuous(sec.axis = dup_axis(name = "")) +
+  # scale_fill_manual(values = ADNeT_colour$accent) +
+  # theme_cowplot() +
+  theme(legend.position = "bottom",
+        legend.box = "horizontal")
+  
+```
+
+```{r}
+graph_df %>%
+  dplyr::filter(name == "Newly added") %>%
+  ggplot(aes(
+    x = dt_completed,
+    y = value,
+    fill = name
+  )) +
+  geom_col(
+    fill = "#00A480",
+    col = "black"
+  )+
+  geom_text(
+    data = graph_df %>% dplyr::filter(name == "Newly added"),
+    aes(
+      label = comma(value, accuracy = 1),
+      y = value
+    ),
+    vjust = -1
+  ) +
+  labs(
+    x = "Date",
+    y = "Number of newly added participants",
+    fill = " ",
+    caption = glue::glue("There are {n_missing_completion_date} cases with missing date of completion")
+  ) +
+  scale_y_continuous(sec.axis = dup_axis(name = "")) +
+  # scale_fill_manual(values = ADNeT_colour$accent) +
+  # theme_cowplot() +
+  theme(legend.position = "bottom",
+        legend.box = "horizontal")
+```
+
+## Demographics
+
+```{r demographgics, results = 'asis'}
+tbl_df <-
+  data_all %>%
+  dplyr::filter(database == "ADNeT Registry") %>%
+  mutate(
+    pt_age_diagnosis = pt_age_diagnosis,
+    pt_sex = fct_recode(pt_sex, `Not stated` = "Not stated/inadequately described") %>%
+      fct_relevel(c("Female", "Male", "Not stated")),
+    pt_atsi = fct_collapse(
+      pt_atsi,
+      `Aboriginal and/or Torres Strait Islander` = c(
+        "Aboriginal, not Torres Strait Islander",
+        "Torres Strait Islander, not Aboriginal"
+      ),
+      `Neither Aboriginal or Torres Strait Islander` =
+        "Neither Aboriginal or Torres Strait Islander",
+      `Not stated` = "Not stated/inadequately described"
+    ) %>%
+      fct_relevel(c(
+        "Aboriginal and/or Torres Strait Islander",
+        "Neither Aboriginal or Torres Strait Islander",
+        "Not stated"
+      )),
+
+    # country of birth
+    country_of_birth = na_if(pt_countryofbirth, "Not stated/inadequately described"),
+    country_of_birth = fct_lump(country_of_birth, n = 5),
+    country_of_birth = fct_other(country_of_birth, drop = "Other, please specify"),
+    country_of_birth = fct_explicit_na(country_of_birth, "Not stated"),
+
+    # preferred language
+    preferred_language = na_if(pt_spokenlanguage, "Not stated/inadequately described"),
+    preferred_language = fct_lump(preferred_language, n = 5),
+    preferred_language = fct_other(preferred_language, drop = "Other, please specify"),
+    preferred_language = fct_explicit_na(preferred_language, "Not stated"),
+    pt_edu = pt_edu %>%
+      fct_collapse(
+        `Primary education or less` = c("No education", "Primary education or lower"),
+        `Secondary education` = c(
+          "Junior secondary education (up to year 10)",
+          "Senior secondary education (year 11 and above)"
+        ),
+        `Tertiary education or higher` = "Tertiary education",
+        `Not stated` = "Not stated/inadequately described"
+      ) %>%
+      factor(levels = c(
+        "Primary education or less",
+        "Secondary education",
+        "Tertiary education or higher",
+        "Not stated"
+      )),
+    pt_emp_status = pt_emp_status %>%
+      fct_collapse(
+        `Employed` = "Employed",
+        `Retired/not in labour force` = c("Unemployed", "Not in the labour force"),
+        `Not stated` = "Not stated/inadequately described"
+      ) %>%
+      factor(levels = c(
+        "Employed", "Retired/not in labour force",
+        "Not stated"
+      )),
+    pt_residential = na_if(pt_residential, "Not stated/inadequately described"),
+    pt_residential = fct_lump(pt_residential, n = 5),
+    pt_residential = fct_other(pt_residential, drop = "Other, please specify"),
+    pt_residential = fct_explicit_na(pt_residential, "Not stated"),
+    pt_living = pt_living %>%
+      fct_collapse(
+        `Living alone` = "Lives alone",
+        `Living with family or others` = c(
+          "Lives with others",
+          "Lives with family"
+        ),
+        `Not stated` = "Not stated/inadequately described"
+      ) %>%
+      factor(levels = c(
+        "Living alone", "Living with family or others",
+        "Not stated"
+      )) %>%
+      fct_explicit_na("Not stated")
+  ) %>%
+  mutate(across(where(is.factor), fct_drop))
+
+tbl_labels <- list(
+  pt_age_diagnosis = "Age at diagnosis (years)",
+  pt_sex = "Sex, n (%)",
+  pt_atsi = "Aboriginal and/or Torres Strait Islander, n (%)",
+  country_of_birth = "Country of birth, n (%)",
+  preferred_language = "Preferred spoken language, n (%)",
+  pt_edu = "Highest education level, n (%)",
+  pt_emp_status = "Labour force status, n (%)",
+  pt_residential = "Residential setting, n (%)",
+  pt_living = "Living arrangement, n (%)",
+  dx = "Diagnosis",
+  dx_dementia = "Dementia subtype",
+  dx_mci_subtype = "MCI subtype"
+)
+
+tbl_control <-
+  tableby.control(
+    test = FALSE,
+    total = TRUE,
+    numeric.stats = c("N",  "meansd", "medianq1q3", "range", "Nmiss2"),
+    cat.stats = c("N", "countpct"),
+    stats.labels = c(Nmiss2 = "Missing"),
+    digits = 1
+  )
+
+tab1 <- tableby(category ~ pt_age_diagnosis + pt_sex + pt_atsi + country_of_birth + preferred_language +
+  pt_edu + pt_emp_status + pt_residential + pt_living,
+data = tbl_df,
+control = tbl_control
+)
+
+summary(tab1, labelTranslations = tbl_labels)
+```
+
+## Participant Clinical Profile
+
+```{r diagnosis, results = 'asis'}
+tbl_df <-
+  data_all %>%
+  dplyr::filter(database == "ADNeT Registry") %>%
+  select(dx, pt_time_to_appt, date_ref, initial_appt, date_dx, category)
+
+tab1 <- tableby(category ~ dx,
+  data = tbl_df,
+  control = tbl_control
+)
+
+summary(tab1,
+  labelTranslations = tbl_labels,
+  title = "Diagnosis"
+)
+```
+
+```{r dementia subtype, results = 'asis'}
+tbl_df <-
+  data_all %>%
+  dplyr::filter(
+    database == "ADNeT Registry",
+    dx == "Dementia"
+  )
+
+tab1 <- tableby(category ~ dx_dementia,
+  data = tbl_df,
+  control = tbl_control
+)
+
+summary(tab1,
+  labelTranslations = tbl_labels,
+  title = "Dementia subtype"
+)
+```
+
+```{r MCI subtype, results='asis'}
+tbl_df <-
+  data_all %>%
+  dplyr::filter(
+    database == "ADNeT Registry",
+    dx == "MCI"
+  ) %>%
+  select(dx_mci_subtype, category) %>%
+  mutate(
+    dx_mci_subtype = fct_relevel(
+      dx_mci_subtype,
+      "Amnestic, single domain",
+      "Amnestic, multi-domain",
+      "Non-amnestic, single domain",
+      "Non-amnestic, multi-domain",
+      "Not stated/inadequately described"
+    ),
+    dx_mci_subtype = fct_recode(dx_mci_subtype,
+      `Not stated` = "Not stated/inadequately described"
+    )
+  )
+
+tab1 <- tableby(category ~ dx_mci_subtype,
+  data = tbl_df,
+  control = tbl_control
+)
+
+summary(tab1,
+  labelTranslations = tbl_labels,
+  title = "MCI subtype"
+)
+```
+
+## PROPORTION OF DEMENTIA AND MCI
+
+```{r, fig.cap = "Proportion of dementia and MCI diagnoses across the ADNeT Registry cohort and at your site", fig.width = 7, dpi = 300, fig.showtext = TRUE}
+graph_df <-
+  data_all %>%
+  dplyr::filter(!is.na(dx) & database == "ADNeT Registry") %>%
+  count(dx, category, .drop = FALSE) %>%
+  group_by(category) %>%
+  mutate(
+    pct = round(100 * n / sum(n)),
+    label = glue::glue("{n} ({pct}%)")
+  )
+
+graph_df %>%
+  ggplot(aes(x = category, y = pct, fill = factor(dx) %>% fct_rev())) +
+  geom_col(
+    width = 0.5,
+    col = "black"
+  ) +
+  geom_text(aes(label = label),
+    position = position_stack(vjust = 0.5),
+    col = "white"
+  ) +
+  scale_y_continuous(expand = c(0, 0)) +
+  labs(x = "", 
+       y = "Percentage of patients",
+       fill = "") +
+  # scale_fill_manual(
+  #   name = "",
+  #   values = c("#152144", "#00A480")
+  # ) +
+  # theme_cowplot() +
+  theme(
+    text = element_text(size = 16), axis.text = element_text(size = rel(1)),
+    legend.position = "top",
+    legend.direction = "horizontal"
+  )
+```
+
+## DISTRIBUTION OF DEMENTIA SUBTYPE
+
+```{r, fig.cap = "Distribution of dementia subtype at your site", fig.width = 7, fig.height = 9, dpi = 300, fig.showtext = TRUE}
+graph_df <-
+  data_all %>%
+  dplyr::filter(database == "ADNeT Registry", dx == "Dementia") %>%
+  count(dx_dementia, category, drop = FALSE) %>%
+  group_by(category) %>%
+  mutate(
+    pct = n / sum(n),
+    dx_dementia = fct_rev(dx_dementia),
+    label = glue::glue("{n} ({percent(pct, accuracy = 0.1)})"),
+    hjust = if_else(pct < 0.1,
+      -0.2,
+      1
+    ),
+    col = if_else(pct < 0.1, "black", "white")
+  )
+
+graph_df %>%
+  ggplot(aes(x = pct, y = dx_dementia, fill = category)) +
+  geom_col(width = 0.75, position = "dodge") +
+  geom_text(aes(label = label, hjust = hjust, col = col),
+    position = position_dodge(width = 0.5)
+  ) +
+  labs(
+    y = "", x = "Percentage of patients",
+    caption = "* Mixed Alzheimer’s and Vascular include participants with both Alzheimer’s Disease and 
+    Vascular Dementia with or without another dementia subtype"
+  ) +
+  scale_fill_manual(name = "", values = c("#152144", "#00A480")) +
+  scale_colour_manual(name = "", values = c("black", "white")) +
+  scale_x_continuous(labels = percent) +
+  # theme_cowplot() +
+  theme(
+    text = element_text(size = 16),
+    axis.text = element_text(size = rel(1)),
+    axis.text.y = element_text(size = rel(1)),
+    legend.position = "none",
+    plot.caption.position =  "plot",
+    plot.caption = element_text(hjust = 0, size = 12, margin = margin(t = 30))
+  ) +
+  guides(fill = guide_legend(reverse = TRUE), colour = "none")
+```
+
+\newpage
+
+## Clinical information
+
+```{r clinical information, results='asis'}
+all_df <- 
+  data %>%
+  dplyr::filter(database == "ADNeT Registry", dx %in% c("Dementia", "MCI")) %>%
+  mutate(
+    mobil = case_when(
+      mobil == "Yes, independent with/without gait aid" ~ 1,
+      TRUE ~ 0
+    ) %>%
+      factor(levels = c(0, 1)),
+    bladder_bowel_inc = case_when(
+      bladder_bowel_inc == "Continent of urine and faeces" ~ 1,
+      TRUE ~ 0
+    ) %>%
+      factor(levels = c(0, 1)),
+    pt_stroke = case_when(
+      pt_stroke > 0 & pt_stroke != 99 ~ 1,
+      TRUE ~ 0
+    ) %>%
+      factor(levels = c(0, 1)),
+    pt_hypertension = case_when(
+      str_detect(pt_hypertension, "Yes") ~ 1,
+      TRUE ~ 0
+    ) %>%
+      factor(levels = c(0, 1)),
+    pt_diabetes = case_when(
+      pt_diabetes == "Yes" ~ 1,
+      TRUE ~ 0
+    ) %>%
+      factor(levels = c(0, 1)),
+    pt_heart_disease = case_when(
+      pt_heart_disease == "Yes" ~ 1,
+      TRUE ~ 0
+    ) %>%
+      factor(levels = c(0, 1)),
+    pt_cancer = case_when(
+      pt_cancer == "Yes" ~ 1,
+      TRUE ~ 0
+    ) %>%
+      factor(levels = c(0, 1)),
+    pt_falls = case_when(
+      pt_falls == "Yes" ~ 1,
+      TRUE ~ 0
+    ) %>%
+      factor(levels = c(0, 1)),
+    instrumental_adl = case_when(
+      instrumental_adl == "Yes" ~ 1,
+      TRUE ~ 0
+    ) %>%
+      factor(levels = c(0, 1)),
+    personal_adl = case_when(
+      personal_adl == "Yes" ~ 1,
+      TRUE ~ 0
+    ) %>%
+      factor(levels = c(0, 1)),
+    pt_driving = case_when(
+      pt_driving == "Yes" ~ 1,
+      TRUE ~ 0
+    ) %>%
+      factor(levels = c(0, 1))
+  )
+
+tbl_all <- all_df %>%
+  select(
+    dx,
+
+    # Subgroup 1: Cognitive tests
+    mmse_score, moca_score, rudas_score,
+
+    # Subgroup 2: Function and falls
+    mobil, pt_falls, bladder_bowel_inc, personal_adl, instrumental_adl, pt_driving,
+
+    # Subgroup 3: Medications
+    tot_med,
+
+    # Subgroup 4: Medical history
+    pt_hypertension, pt_diabetes, pt_heart_disease, pt_stroke, pt_cancer
+  )
+
+
+tbl_labels <- list(
+  mmse_score = "MMSE",
+  rudas_score = "RUDAS",
+  moca_score = "MoCA",
+  mobil = "Mobility independent",
+  pt_falls = "Falls in past 12 months",
+  bladder_bowel_inc = "Continent",
+  personal_adl = "pADLs independent",
+  instrumental_adl = "iADLs independent",
+  pt_driving = "Driving",
+  tot_med = "Number of medications, median (Q1-Q3)",
+  pt_stroke = "Stroke",
+  pt_hypertension = "Hypertension",
+  pt_diabetes = "Diabetes",
+  pt_heart_disease = "Cardiovascular disease",
+  pt_cancer = "Cancer"
+)
+
+tbl_control <-
+  tableby.control(
+    test = FALSE,
+    total = TRUE,
+    numeric.stats = c("N",  "meansd", "medianq1q3", "range", "Nmiss2"),
+    cat.stats = c("N", "countpct"),
+    stats.labels = c(Nmiss2 = "Not completed"),
+    digits = 1
+  )
+
+tab1 <- tableby(dx ~ mmse_score + rudas_score + moca_score,
+data = tbl_all,
+control = tbl_control,
+cat.simplify = TRUE
+)
+
+tbl_control <-
+  tableby.control(
+    test = FALSE,
+    total = TRUE,
+    numeric.stats = c("N",  "meansd", "medianq1q3", "range", "Nmiss2"),
+    cat.stats = c("N", "countpct"),
+    stats.labels = c(Nmiss2 = "Missing"),
+    digits = 1
+  )
+
+tab2 <- tableby(dx ~ mobil + pt_falls + bladder_bowel_inc +
+  personal_adl + instrumental_adl + pt_driving + tot_med + pt_stroke +
+  pt_hypertension + pt_diabetes + pt_heart_disease + pt_cancer,
+data = tbl_all,
+control = tbl_control,
+cat.simplify = TRUE
+)
+
+tab12 <- merge(tab1, tab2)
+
+summary(tab12, labelTranslations = tbl_labels)
+```
+
+\newpage
+
+## Clinical Processes
+
+```{r,  results='asis'}
+all_df <-
+  data %>%
+  dplyr::filter(database == "ADNeT Registry") %>%
+  select(
+    dx,
+    site_name,
+
+    # Subgroup 1: Referral time intervals
+    pt_time_to_appt, date_ref, initial_appt, date_dx,
+
+    # Subgroup 2: Investigations
+    blood_test,
+    structural_imaging___1, structural_imaging___2, structural_imaging___3,
+    structural_imaging___99,
+    functional_imaging___1, functional_imaging___2, functional_imaging___3,
+    functional_imaging___4, functional_imaging___5, functional_imaging___99,
+    lp,
+
+    # Subgroup 3: CHEI Prescription
+    achei,
+
+    # Subgroup 4: CHEI Prescription details
+    dx_dem_subtype___1, mmse_score,
+
+    # Subgroup 5: Interest in research participation
+    pt_research_interest
+  ) %>%
+  transmute(
+    dx = dx,
+    site = site_name,
+    pt_time_ref_dx = difftime(date_dx, date_ref, unit = "days"),
+    pt_time_to_appt = pt_time_to_appt,
+    pt_time_appt_dx = difftime(date_dx, initial_appt, unit = "days"),
+    unknown_referral = is.na(date_ref),
+    blood_test = case_when(
+      blood_test == "Yes" ~ "Completed",
+      blood_test == "No" ~ "Not Completed",
+      is.na(blood_test) | blood_test == "Not stated/inadequately described" ~ "Not stated"
+    ) %>% factor(c("Completed", "Not completed", "Not stated")),
+    structural_imaging___1 = case_when(
+      structural_imaging___1 == "Checked" ~ "Yes",
+      structural_imaging___1 == "Unchecked" ~ "No"
+    ),
+    structural_imaging___2 = case_when(
+      structural_imaging___2 == "Checked" ~ "Yes",
+      structural_imaging___2 == "Unchecked" ~ "No"
+    ),
+    structural_imaging___3 = case_when(
+      structural_imaging___3 == "Checked" ~ "Yes",
+      structural_imaging___3 == "Unchecked" ~ "No"
+    ),
+    structural_imaging___99 = case_when(
+      structural_imaging___99 == "Checked" ~ "Yes",
+      structural_imaging___99 == "Unchecked" ~ "No"
+    ),
+    functional_imaging___2 = case_when(
+      functional_imaging___2 == "Checked" ~ "Yes",
+      functional_imaging___2 == "Unchecked" ~ "No"
+    ),
+    functional_imaging___1 = case_when(
+      functional_imaging___1 == "Checked" ~ "Yes",
+      functional_imaging___1 == "Unchecked" ~ "No"
+    ),
+    functional_imaging___3_4 = case_when(
+      functional_imaging___3 == "Checked" | functional_imaging___4 == "Checked" ~ "Yes",
+      functional_imaging___3 == "Unchecked" & functional_imaging___4 == "Unchecked" ~ "No"
+    ),
+    functional_imaging___5 = case_when(
+      functional_imaging___5 == "Checked" ~ "Yes",
+      functional_imaging___5 == "Unchecked" ~ "No",
+    ),
+    functional_imaging___99 = case_when(
+      functional_imaging___99 == "Checked" ~ "Yes",
+      functional_imaging___99 == "Unchecked" ~ "No",
+    ),
+    lp = case_when(
+      lp == "Yes" ~ "Completed",
+      lp == "No" ~ "Not completed",
+      is.na(lp) | lp == "Not stated/inadequately described" ~ "Not stated"
+    ) %>% factor(c("Completed", "Not completed", "Not stated")),
+    chei_status = case_when(
+      achei %in% c(
+        "Yes, donepezil (Aricept)", "Yes, rivastigmine (Exelon)",
+        "Yes, galantamine (Reminyl)"
+      ) ~ "Any CHEI recommended or prescribed",
+      achei == "No" ~ "No CHEI recommended or prescribed",
+      achei %in% c(
+        "Yes, drug not specified",
+        "Not stated/inadequately described"
+      ) | is.na(achei) ~ "Not Stated"
+    ) %>% factor(levels = c("Any CHEI recommended or prescribed", "No CHEI recommended or prescribed", " Not Stated")),
+    chei_prescribed = case_when(
+      achei == "Yes, donepezil (Aricept)" ~ "Donepezil",
+      achei == "Yes, rivastigmine (Exelon)" ~ "Rivastigmine",
+      achei == "Yes, galantamine (Reminyl)" ~ "Galantamine"
+    ) %>% factor(levels = c("Donepezil", "Rivastigmine", "Galantamine")),
+    chei_subtype = case_when(
+      chei_status == "Any CHEI recommended or prescribed" & dx_dem_subtype___1 == "Checked" ~ "In Dementia with AD subtype (all)",
+      chei_status == "Any CHEI recommended or prescribed" & dx_dem_subtype___1 != "Checked" ~ "In Dementia with non-AD subtypes"
+    ) %>% factor(levels = c("In Dementia with AD subtype (all)", "In Dementia with non-AD subtypes")),
+    chei_ad_mmse = case_when(
+      chei_status == "Any CHEI recommended or prescribed" & dx_dem_subtype___1 == "Checked" & mmse_score >= 10 ~ "In Dementia with AD subtype, MMSE >= 10",
+      chei_status == "Any CHEI recommended or prescribed" & dx_dem_subtype___1 == "Checked" & mmse_score < 10 ~ "In Dementia with AD subtype, MMSE < 10",
+      chei_status == "Any CHEI recommended or prescribed" & dx_dem_subtype___1 == "Checked" & is.na(mmse_score) ~ "In Dementia with AD subtype, No MMSE"
+    ) %>% factor(levels = c("In Dementia with AD subtype, MMSE >= 10", "In Dementia with AD subtype, MMSE < 10", "In Dementia with AD subtype, No MMSE")),
+    pt_research_interest = factor(pt_research_interest, c("Yes", "No", "Not determined"))
+  )
+
+
+tbl_labels <-
+  list(
+    pt_time_ref_dx = "Referral to diagnosis, median (Q1-Q3)",
+    pt_time_to_appt = "Referral to first appointment, median (Q1-Q3)",
+    pt_time_appt_dx = "First appointment to diagnosis, median (Q1-Q3)",
+    unknown_referral = "Unknown referral date, n (\\%)",
+    blood_test = "Core blood tests, n (\\%)",
+    structural_imaging___1 = "CT Brain",
+    structural_imaging___2 = "MRI Brain",
+    structural_imaging___3 = "None completed",
+    structural_imaging___99 = "Not stated",
+    functional_imaging___2 = "FDG PET",
+    functional_imaging___1 = "SPECT",
+    functional_imaging___3_4 = "Amyloid/Tau PET",
+    functional_imaging___5 = "None completed",
+    functional_imaging___99 = "Not stated",
+    lp = "Lumbar puncture, n (\\%)",
+    chei_status = "CHEI Prescription Status",
+    chei_prescribed = "Type of CHEI recommended/prescribed",
+    # chei_unspecified ~ "CHEI unspecified",
+
+    chei_ad_mmse = "CHEI in AD subtype by MMSE status",
+    chei_subtype = "CHEI by AD subtype",
+    pt_research_interest = "Interest in Research participation"
+  )
+
+# tbl_control <-
+#   tableby.control(numeric.stats = c("Nmiss", "medianq1q3"),
+#                   stats.labels = c(Nmiss = "Missing"))
+
+tab1 <- tableby(dx ~ pt_time_ref_dx + pt_time_to_appt + pt_time_appt_dx + unknown_referral + blood_test +
+  structural_imaging___1 + structural_imaging___2 + structural_imaging___3 +
+  structural_imaging___99 + functional_imaging___2 + functional_imaging___1 +
+  functional_imaging___3_4 + functional_imaging___5 +
+  functional_imaging___99 + lp + chei_status + chei_prescribed + chei_ad_mmse + chei_subtype +
+  pt_research_interest,
+data = all_df,
+control = tbl_control,
+cat.simplify = TRUE
+)
+
+summary(tab1, labelTranslations = tbl_labels)
+```
+
+

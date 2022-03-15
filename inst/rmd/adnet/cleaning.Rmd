@@ -1,0 +1,498 @@
+```{r import, include=FALSE}
+# we need to add some sort of a check to give an error if not the right token is provided
+data_registry <- redcap_read(
+  redcap_uri = "https://redcap.helix.monash.edu/api/",
+  token = params$registry_token,
+  export_data_access_groups = TRUE,
+  raw_or_label = "label"
+)$data
+
+data_holding <- redcap_read(
+  redcap_uri = "https://redcap.helix.monash.edu/api/",
+  token = params$holding_token,
+  export_data_access_groups = TRUE,
+  raw_or_label = "label"
+)$data
+
+data_optout <- redcap_read(
+  redcap_uri = "https://redcap.helix.monash.edu/api/",
+  token = params$optout,
+  export_data_access_groups = TRUE,
+  raw_or_label = "label"
+)$data
+```
+
+```{r merge, include=FALSE}
+data_registry <-
+  data_registry %>%
+  mutate(across(
+    c(opt_out_group),
+    as.character
+  ))
+
+data_holding <-
+  data_holding %>%
+  dplyr::filter(data_completeness_check_complete == "Complete") %>%
+  mutate(across(
+    c(cr_postcode, opt_out_group),
+    as.character
+  ))
+
+data <-
+  bind_rows(list(
+    data_registry = data_registry,
+    data_holding = data_holding,
+    data_optout = data_optout
+  ),
+  .id = "database"
+  ) %>%
+  as_tibble() %>%
+  mutate(database = recode(database,
+    "data_registry" = "ADNeT Registry",
+    "data_holding" = "ADNeT Holding Database",
+    "data_optout" = "ADNeT Opt-out Database"
+  ))
+```
+
+
+```{r variable_cleaning, include=FALSE}
+data_cleaned <-
+  data %>%
+  distinct(pt_firstname, pt_surname, pt_dob, .keep_all = TRUE) %>%
+  dplyr::filter(data_completeness___1 == "Checked" | is.na(data_completeness___1)) %>%
+  mutate(
+    database = factor(database, c("ADNeT Registry", "ADNeT Holding Database", "ADNeT Opt-out Database")),
+    dx = factor(dx, levels = c("Dementia", "MCI")),
+    site_state = case_when(
+      redcap_data_access_group %in% c(
+        "Flinders Medical Centre Memory and Aged Care Clinics",
+        "RAH Memory Service",
+        "Sensus Cognition",
+        "SpARC Memory Clinic",
+        "TQEH Memory Service (CALHN)"
+      ) ~ "South Australia",
+      redcap_data_access_group %in% c(
+        "Brellah Clinic",
+        "Brodaty Clinic",
+        "Burwood Specialists",
+        "Central Coast Neurosciences - ProCognition Clinic",
+        "Hornsby Ku-Ring-Gai Memory Clinic",
+        "MLHD Aged Care Service",
+        "PoW Cognitive Disorders Clinic",
+        "PoW Neuropsychiatry",
+        "Memory Assessment Program (MAP) Northern NSW Local Health District",
+        "Salus Clinic",
+        "Shoalhaven",
+        "Shoalhaven - Milton"
+      ) ~ "New South Wales",
+      redcap_data_access_group %in% c(
+        "Calvary Sessional Rooms",
+        "David Dunbabin Aged Care",
+        "The ISLAND Clinic"
+      ) ~ "Tasmania",
+      redcap_data_access_group %in% c(
+        "Austin CDAMS",
+        "Barwon CDAMS",
+        "Caulfield CDAMS",
+        "Irene Wagner's Clinic",
+        "RMH Neuropsychiatry",
+        "Western Health CDAMS"
+      ) ~ "Victoria",
+      redcap_data_access_group %in% c(
+        "Cairns Memory Clinic",
+        "Cairns Memory Clinic, Innisfail Memory Clinic",
+        "Dementia Assessment Service",
+        "Innisfail Memory Clinic",
+        "Ipswich Memory Clinic",
+        "Mareeba Memory Clinic",
+        "Neurosciences Queensland",
+        "Robert Adam Neurology",
+        "The Memory Clinic Princess Alexandra Hospital",
+        "The Prince Charles Hospital Memory Clinic"
+      ) ~ "Queensland"
+    ),
+
+    # pt_countryofbirth = fct_expand(
+    #   pt_countryofbirth,
+    #   data_validated %>% pull(pt_countryofbirth_other) %>% unique() %>% str_to_title() %>% na.omit
+    # ) %>% {
+    #   case_when(
+    #     !is.na(pt_countryofbirth_other) ~ factor(pt_countryofbirth_other, levels(.)),
+    #     TRUE ~ .
+    #   )
+    # } %>%
+    #   fct_collapse(
+    #     USA = c("USA", "United States of America"),
+    #     Barbados = c("Barbados", "Barbados West Indies"),
+    #     Romania = c("Romania", "Rumania"),
+    #     UK = c("UK", "United Kingdom"),
+    #     Uruguay = c("Uraguay", "Uruguay")
+    #   ) %>%
+    #   fct_drop,
+    #
+    # pt_spokenlanguage = fct_expand(
+    #   pt_spokenlanguage,
+    #   data_validated %>% pull(pt_spokenlanguage_other) %>% unique() %>% str_to_title() %>% na.omit
+    # ) %>% {
+    #   case_when(
+    #     !is.na(pt_spokenlanguage_other) ~ factor(pt_spokenlanguage_other, levels(.)),
+    #     TRUE ~ .
+    #   )
+    # } %>%
+    #   fct_collapse(
+    #     Romanian = "Rumanian"
+    #   ) %>%
+    #   fct_drop,
+
+    woc_group = case_when(
+      opt_out_timepoint == "At time of diagnosis" ~ NA_real_,
+      is.na(woc_group) & dx_communicated == "No" ~ 2,
+      is.na(woc_group) & pr_identified == "No" ~ 3,
+      is.na(woc_group) & pr_dx_communicated == "No" ~ 4,
+      dx_communicated == "Yes" & is.na(pt_address) & database != "ADNeT Opt-out Database" ~ 5,
+      pr_dx_communicated == "Yes" & is.na(pr_address) & database != "ADNeT Opt-out Database" ~ 6,
+      TRUE ~ as.numeric(woc_group)
+    ),
+    pt_health = case_when(
+      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_health
+    ),
+    pt_wellbeing = case_when(
+      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_wellbeing
+    ),
+    pt_exp_dx = case_when(
+      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_exp_dx
+    ),
+    pt_exp_deci = case_when(
+      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_exp_deci
+    ),
+    pt_exp_quest = case_when(
+      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_exp_quest
+    ),
+    pt_exp_concern = case_when(
+      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_exp_concern
+    ),
+    pt_exp_treatm = case_when(
+      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_exp_treatm
+    ),
+    pt_exp_advice = case_when(
+      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_exp_advice
+    ),
+    pt_exp = case_when(
+      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_exp
+    ),
+    pt_exp_expect = case_when(
+      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_exp_expect
+    ),
+    cr_health = case_when(
+      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_health
+    ),
+    cr_wellbeing = case_when(
+      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_wellbeing
+    ),
+    cr_adeq_info = case_when(
+      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_adeq_info
+    ),
+    cr_involvment = case_when(
+      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_involvment
+    ),
+    cr_opp_quest = case_when(
+      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_opp_quest
+    ),
+    cr_listened = case_when(
+      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_listened
+    ),
+    cr_treated = case_when(
+      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_treated
+    ),
+    cr_advice_given = case_when(
+      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_advice_given
+    ),
+    cr_exp = case_when(
+      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_exp
+    ),
+    cr_exp_expect = case_when(
+      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_exp_expect
+    ),
+    woc_group = factor(
+      woc_group,
+      levels = c(1, 2, 3, 4, 5, 6),
+      labels = c(
+        "Patient died prior to recruitment",
+        "No diagnosis communication to patient",
+        "No person responsible identified",
+        "No diagnosis communication to person responsible",
+        "Patient address unknown",
+        "Person responsible address unknown"
+      )
+    ),
+    opt_out_group = case_when(
+      opt_out_timepoint == "At time of diagnosis" ~ NA_real_,
+      as.character(woc_group) %in% c(
+        "Patient address unknown",
+        "Person responsible address unknown"
+      ) ~ NA_real_,
+      is.na(opt_out_group) & dx_communicated == "Yes" ~ 1,
+      is.na(opt_out_group) & pr_dx_communicated == "Yes" ~ 2,
+      opt_out_group == 3 & pr_also_cr == "Yes" ~ 2,
+      is.na(opt_out_group) & cr_dx_communicated == "Yes" ~ 3,
+      TRUE ~ as.numeric(opt_out_group)
+    ),
+    opt_out_group = factor(
+      opt_out_group,
+      levels = 1:3,
+      labels = c(
+        "Patient contacted",
+        "Person responsible contacted",
+        "Carer contacted"
+      )
+    ),
+    pr_dx_communicated = case_when(
+      is.na(pr_dx_communicated) &
+        opt_out_group == "Person responsible contacted" ~ "Yes",
+      is.na(pr_dx_communicated) &
+        woc_group == "No diagnosis communication to person responsible" ~ "No",
+      TRUE ~ as.character(pr_dx_communicated)
+    ) %>% as_factor(),
+    pr_identified = case_when(
+      is.na(pr_identified) & !is.na(pr_dx_communicated) ~ "Yes",
+      is.na(pr_identified) & woc_group == "No person responsible identified" ~ "No",
+      TRUE ~ as.character(pr_identified)
+    ) %>% as_factor(),
+    dx_communicated = case_when(
+      is.na(dx_communicated) & opt_out_group == "Patient contacted" ~ "Yes",
+      is.na(dx_communicated) & woc_group == "No diagnosis communication to patient" ~ "No",
+      TRUE ~ as.character(dx_communicated)
+    ) %>% as_factor(),
+    pt_optoutcapacity = case_when(
+      is.na(pt_optoutcapacity) & !is.na(dx_communicated) ~ "Yes",
+      is.na(pt_optoutcapacity) & !is.na(pr_identified) ~ "No",
+      TRUE ~ as.character(pt_optoutcapacity)
+    ) %>% as_factor()
+  ) %>%
+  # Derived variables
+  mutate(
+    optout_diagnosis_num = case_when(
+      (opt_out_timepoint == "At time of diagnosis" &
+        database %in% c("ADNeT Holding Database", "ADNeT Opt-out Database")) ~ 1
+    ),
+    optout_diagnosis_denom = case_when(
+      (opt_out_timepoint == "At time of diagnosis" &
+        database %in% c("ADNeT Holding Database", "ADNeT Opt-out Database")) |
+        (!is.na(opt_out_group) & database %in% c("ADNeT Registry", "ADNeT Holding Database")) ~ 1
+    ),
+    optout_recruitment_num = case_when(
+      (opt_out_yes___1 == "Checked" & database == "ADNeT Holding Database") |
+        (opt_out_timepoint == "During recruitment" & database == "ADNeT Opt-out Database") ~ 1
+    ),
+    optout_recruitment_denom = case_when(
+      (opt_out_timepoint == "During recruitment" & database == "ADNeT Opt-out Database") |
+        (!is.na(opt_out_group) & database %in% c("ADNeT Registry", "ADNeT Holding Database")) ~ 1
+    ),
+    optout_postrecruitment_num = case_when(
+      (opt_out_yes___1 == "Checked" & database == "ADNeT Registry") |
+        (opt_out_timepoint == "Post recruitment" & database == "ADNeT Opt-out Database") ~ 1
+    ),
+    optout_postrecruitment_denom = case_when(
+      (!is.na(opt_out_group) & database == "ADNeT Registry") |
+        (opt_out_timepoint == "Post recruitment" & database == "ADNeT Opt-out Database") ~ 1
+    ),
+    optout_allcontacted_num = case_when(
+      (opt_out_timepoint == "At time of diagnosis" & database == "ADNeT Holding Database") |
+        (opt_out_yes___1 == "Checked" & database %in% c("ADNeT Registry", "ADNeT Holding Database")) |
+        database == "ADNeT Opt-out Database" ~ 1
+    ),
+    optout_allcontacted_denom = case_when(
+      (opt_out_timepoint == "At time of diagnosis" & database == "ADNeT Holding Database") |
+        (!is.na(opt_out_group) & database %in% c("ADNeT Registry", "ADNeT Holding Database")) |
+        database == "ADNeT Opt-out Database" ~ 1
+    ),
+    optout_allexceptdiagnosis_num = case_when(
+      (opt_out_yes___1 == "Checked" & database %in% c("ADNeT Registry", "ADNeT Holding Database")) |
+        (opt_out_timepoint %in% c("During recruitment", "Post Recruitment") &
+          database == "ADNeT Opt-out Database") ~ 1
+    ),
+    optout_allexceptdiagnosis_denom = case_when(
+      (!is.na(opt_out_group) & database %in% c("ADNeT Registry", "ADNeT Holding Database")) |
+        (opt_out_timepoint %in% c("During recruitment", "Post recruitment") &
+          database == "ADNeT Opt-out Database") ~ 1
+    ),
+    optout_recruitmentlapse_num = case_when(
+      (opt_out_timepoint == "At time of diagnosis" & database == "ADNeT Holding Database") |
+        (opt_out_yes___1 == "Checked" & database %in% c("ADNeT Registry", "ADNeT Holding Database")) |
+        database == "ADNeT Opt-out Database" ~ 1
+    ),
+    optout_recruitmentlapse_denom = case_when(
+      (opt_out_timepoint == "At time of diagnosis" & database == "ADNeT Holding Database") |
+        (opt_out_yes___1 == "Checked" & database %in% c("ADNeT Holding Database")) |
+        database == "ADNeT Opt-out Database" |
+        (!is.na(opt_out_group) & database %in% c("ADNeT Registry")) ~ 1
+    ),
+    optout_lapseexceptdiagnosis_num = case_when(
+      (opt_out_yes___1 == "Checked" & database %in% c("ADNeT Registry", "ADNeT Holding Database")) |
+        database == "ADNeT Opt-out Database" ~ 1
+    ),
+    optout_lapseexceptdiagnosis_denom = case_when(
+      (opt_out_timepoint == "At time of diagnosis" & database == "ADNeT Holding Database") |
+        (opt_out_yes___1 == "Checked" & database %in% c("ADNeT Holding Database")) |
+        (opt_out_timepoint %in% c("During recruitment", "Post recruitment") &
+          database == "ADNeT Opt-out Database") |
+        (!is.na(opt_out_group) & database %in% c("ADNeT Registry")) ~ 1
+    ),
+    optout_raw_woc_num = case_when(
+      (opt_out_timepoint == "At time of diagnosis" & database == "ADNeT Holding Database") |
+        (opt_out_yes___1 == "Checked" & database %in% c("ADNeT Registry", "ADNeT Holding Database")) |
+        database == "ADNeT Opt-out Database" ~ 1
+    ),
+    optout_raw_woc_denom = case_when(
+      !is.na(database) ~ 1
+    ),
+    optout_raw_nowoc_num = case_when(
+      (opt_out_timepoint == "At time of diagnosis" & database == "ADNeT Holding Database") |
+        (opt_out_yes___1 == "Checked" & database %in% c("ADNeT Registry", "ADNeT Holding Database")) |
+        database == "ADNeT Opt-out Database" ~ 1
+    ),
+    optout_raw_nowoc_denom = case_when(
+      (opt_out_timepoint == "At time of diagnosis" & database == "ADNeT Holding Database") |
+        (!is.na(opt_out_group) & database %in% c("ADNeT Registry", "ADNeT Holding Database")) |
+        database == "ADNeT Opt-out Database" ~ 1
+    ),
+    cqi.appt90days = case_when(
+      pt_time_to_appt <= 90 ~ 1,
+      pt_time_to_appt > 90 ~ 0
+    ),
+    cqi.bloodtest12mths = case_when(
+      blood_test == "No" ~ 0,
+      blood_test == "Yes" ~ 1
+    ),
+    cqi.cogdomainassessed = case_when(
+      (cogg_assess___1 == "Checked" |
+        cogg_assess___2 == "Checked" |
+        cogg_assess___3 == "Checked" |
+        cogg_assess___4 == "Checked" |
+        cogg_assess___5 == "Checked" |
+        cogg_assess___6 == "Checked" |
+        cogg_assess___7 == "Checked" |
+        cogg_assess___8 == "Checked" |
+        cogg_assess___9 == "Checked" |
+        cogg_assess___10 == "Checked" |
+        cogg_assess___88 == "Checked") &
+        (!str_detect(cog_assess_other, "CIBIS") | is.na(cog_assess_other)) ~ 1,
+      (cogg_assess___11 == "Checked" |
+        (str_detect(cog_assess_other, "CIBIS") | is.na(cog_assess_other))) &
+        cogg_assess___99 == "Unchecked" ~ 0
+    ),
+    cqi.neuro12mths = case_when(
+      structural_imaging___1 == "Checked" |
+        structural_imaging___2 == "Checked" ~ 1,
+      structural_imaging___3 == "Checked" | (
+        structural_imaging___1 == "Unchecked" &
+          structural_imaging___2 == "Unchecked" &
+          structural_imaging___99 == "Unchecked"
+      ) ~ 0
+    ),
+    cqi.ADLs = case_when(
+      (personal_adl %in% c("No", "Yes") & instrumental_adl %in% c("No", "Yes")) ~ 1,
+      !(personal_adl %in% c("No", "Yes") & instrumental_adl %in% c("No", "Yes")) ~ 0
+    ),
+    cqi.cogreassess18mth = case_when(
+      dx == "MCI" & followup_at_diagnosis == "Yes" ~ 1,
+      dx == "MCI" & followup_at_diagnosis == "No" ~ 0
+    ),
+    cqi.ADachei = case_when(
+      dx_dem_subtype___1 == "Checked" & mmse_score >= 10 &
+        achei %in% c(
+          "Yes, donepezil (Aricept)",
+          "Yes, rivastigmine (Exelon)",
+          "Yes, galantamine (Reminyl)"
+        ) ~ 1,
+      dx_dem_subtype___1 == "Checked" & mmse_score >= 10 &
+        achei %in% c(
+          "Yes, donepezil (Aricept)",
+          "Yes, rivastigmine (Exelon)",
+          "Yes, galantamine (Reminyl)",
+          "No"
+        ) ~ 0
+    )
+  )
+```
+
+```{r recruitment.group_cleaning, include=FALSE}
+full_join(
+  data %>% select(record_id, woc_group, opt_out_group),
+  data_cleaned %>% select(record_id, woc_group, opt_out_group),
+  by = "record_id"
+) %>%
+  dplyr::filter(
+    woc_group.x != woc_group.y | opt_out_group.x != opt_out_group.y |
+      xor(is.na(woc_group.x), is.na(woc_group.y)) |
+      xor(is.na(opt_out_group.x), is.na(opt_out_group.y))
+  ) %>%
+  group_by(woc_group.x, opt_out_group.x, woc_group.y, opt_out_group.y) %>%
+  summarise(n = n()) %>%
+  kable(
+    col.names = c(rep(c("WOC group", "Opt-out group"), 2), "n")
+  ) %>%
+  add_header_above(c("Pre-data clean" = 2, "Post-data clean" = 2, " " = 1))
+```
+
+
+```{r, include=FALSE}
+data_cleaned <-
+  data_cleaned %>%
+  # the lines below need to be double checked with Xiaoping
+  mutate(
+    dx_dementia = case_when(
+      dx_dem_subtype___1 == "Checked" & dx_dem_subtype___2 == "Unchecked" &
+        dx_dem_subtype___3 == "Unchecked" & dx_dem_subtype___4 == "Unchecked" &
+        dx_dem_subtype___5 == "Unchecked" & dx_dem_subtype___6 == "Unchecked" &
+        dx_dem_subtype___7 == "Unchecked" & dx_dem_subtype___8 == "Unchecked" &
+        dx_dem_subtype___9 == "Unchecked" & dx_dem_subtype___10 == "Unchecked" &
+        dx_dem_subtype___11 == "Unchecked" & dx_dem_subtype___88 == "Unchecked" &
+        dx_dem_subtype___99 == "Unchecked" ~ "Alzheimer's disease",
+      dx_dem_subtype___1 == "Unchecked" & dx_dem_subtype___2 == "Checked" &
+        dx_dem_subtype___3 == "Unchecked" & dx_dem_subtype___4 == "Unchecked" &
+        dx_dem_subtype___5 == "Unchecked" & dx_dem_subtype___6 == "Unchecked" &
+        dx_dem_subtype___7 == "Unchecked" & dx_dem_subtype___8 == "Unchecked" &
+        dx_dem_subtype___9 == "Unchecked" & dx_dem_subtype___10 == "Unchecked" &
+        dx_dem_subtype___11 == "Unchecked" & dx_dem_subtype___88 == "Unchecked" &
+        dx_dem_subtype___99 == "Unchecked" ~ "Vascular dementia",
+      dx_dem_subtype___1 == "Unchecked" & dx_dem_subtype___2 == "Unchecked" &
+        dx_dem_subtype___3 == "Unchecked" & dx_dem_subtype___4 == "Unchecked" &
+        dx_dem_subtype___5 == "Unchecked" & dx_dem_subtype___6 == "Unchecked" &
+        dx_dem_subtype___7 == "Unchecked" & dx_dem_subtype___8 == "Checked" &
+        dx_dem_subtype___9 == "Unchecked" & dx_dem_subtype___10 == "Unchecked" &
+        dx_dem_subtype___11 == "Unchecked" & dx_dem_subtype___88 == "Unchecked" &
+        dx_dem_subtype___99 == "Unchecked" ~ "Dementia with Lewy bodies",
+      dx_dem_subtype___1 == "Unchecked" & dx_dem_subtype___2 == "Unchecked" &
+        dx_dem_subtype___3 == "Checked" & dx_dem_subtype___4 == "Unchecked" &
+        dx_dem_subtype___5 == "Unchecked" & dx_dem_subtype___6 == "Unchecked" &
+        dx_dem_subtype___7 == "Unchecked" & dx_dem_subtype___8 == "Unchecked" &
+        dx_dem_subtype___9 == "Unchecked" & dx_dem_subtype___10 == "Unchecked" &
+        dx_dem_subtype___11 == "Unchecked" & dx_dem_subtype___88 == "Unchecked" &
+        dx_dem_subtype___99 == "Unchecked" ~ "Frontotemporal dementia",
+      dx_dem_subtype___1 == "Checked" & dx_dem_subtype___2 == "Checked" ~
+      "Mixed Alzheimer’s and Vascular",
+      (dx_dem_subtype___1 == "Checked") + (dx_dem_subtype___2 == "Checked") +
+        (dx_dem_subtype___3 == "Checked") + (dx_dem_subtype___4 == "Checked") +
+        (dx_dem_subtype___5 == "Checked") + (dx_dem_subtype___6 == "Checked") +
+        (dx_dem_subtype___7 == "Checked") + (dx_dem_subtype___8 == "Checked") +
+        (dx_dem_subtype___9 == "Checked") + (dx_dem_subtype___10 == "Checked") +
+        (dx_dem_subtype___11 == "Checked") + (dx_dem_subtype___88 == "Checked") > 1 ~
+      "Other dementia - mixed pathologies",
+      dx_dem_subtype___11 == "Checked" | dx_dem_subtype___99 == "Checked" ~
+      "Dementia, unspecified",
+      ((dx_dem_subtype___4 == "Checked") +
+        (dx_dem_subtype___5 == "Checked") + (dx_dem_subtype___6 == "Checked") +
+        (dx_dem_subtype___7 == "Checked") +
+        (dx_dem_subtype___9 == "Checked") + (dx_dem_subtype___10 == "Checked") +
+        (dx_dem_subtype___88 == "Checked")) == 1 ~
+      "Other dementia - single pathology"
+    ) %>% factor(c(
+      "Alzheimer's disease", "Vascular dementia",
+      "Mixed Alzheimer’s and Vascular",
+      "Dementia with Lewy bodies", "Frontotemporal dementia",
+      "Other dementia - single pathology",
+      "Other dementia - mixed pathologies", "Dementia, unspecified"
+    ))
+  )
+```

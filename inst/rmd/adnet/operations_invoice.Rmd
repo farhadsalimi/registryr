@@ -1,0 +1,200 @@
+---
+title: "Operations and Invoice report "
+author: "CORRP Data Analysis Team (Farhad Salimi and Anh Tran)"
+date: "(15 February 2021 - `r format(Sys.time(), '%d %B %Y')`)"
+output: 
+  html_document:
+    df_print: paged
+params:
+  registry_token: xxxx
+  holding_token: yyyy
+  optout:  zzzz
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, error = TRUE, message = FALSE, warning = FALSE,
+                      fig.height = 7)
+
+# ADNeT_colour <- list(
+#   text = c("#000000", "#086D41", "#FFFFFF"),
+#   accent = c("#99C455", "#00A480", "#152144", "#D6773A", "#99C455", "#0066AD", "#70AD47"),
+#   hyperlink = "#538135"
+# )
+
+library(pacman)
+p_load(tidyverse, readxl, lubridate, knitr, validate, janitor, gt, gtsummary, kableExtra, 
+       downloadthis,
+       REDCapR)
+```
+
+```{r, child="cleaning.Rmd"}
+
+```
+
+```{r import data}
+data_cleaned <-
+  data_cleaned %>%
+  dplyr::filter(
+    ! (database == "ADNeT Holding Database" & 
+         data_completeness_check_complete == "Incomplete"))
+
+data_cleaned <- data_cleaned %>% mutate(
+  dt_commenced = case_when(
+    is.na(dt_commenced) & !is.na(dt_completed) ~ dt_completed,
+    TRUE ~ dt_commenced
+  )
+)
+```
+
+# Recruitment by site and database
+```{r by database}
+table_df <-
+  data_cleaned %>%
+  group_by(redcap_data_access_group) %>%
+  summarise(first_record_date = as_date(min(dt_commenced)),
+            last_record_date = as_date(max(dt_commenced)),
+            n_adnet_registry = sum(database == "ADNeT Registry"),
+            n_holding_database = sum(database == "ADNeT Holding Database"),
+            n_optout_database = sum(database == "ADNeT Opt-out Database")) %>%
+  rowwise() %>%
+  mutate(n_total = sum(c_across(contains("n_"))))
+
+table_df <- table_df %>%
+  arrange(desc(n_total)) %>%
+  rename(Site = redcap_data_access_group,
+         `Date of first record` = first_record_date,
+         `Date of last record` = last_record_date,
+         `ADNet Registry` = n_adnet_registry,
+         `ADNeT Holding Database` = n_holding_database,
+         `ADNeT Opt-out Database` = n_optout_database,
+         Total = n_total) 
+
+table_df %>%  
+  kbl(booktabs = TRUE,
+      longtable = TRUE, 
+        caption = "Recruitment by site and database",
+        align = 'c') %>%
+  kable_styling(position = "center",
+                bootstrap_options = "striped") %>%
+  scroll_box(width = "100%", height = "1000px") 
+
+
+table_df %>%
+  download_this(
+    output_name = "Recruitment by site and database",
+    output_extension = ".xlsx",
+    button_label = "Download datasets as xlsx",
+    button_type = "warning",
+    has_icon = TRUE,
+    icon = "fa fa-save"
+  )
+
+```
+
+# Recruitment by site and quarter
+```{r quarterly}
+table_df <-
+  data_cleaned %>%
+  group_by(redcap_data_access_group) %>%
+  mutate(first_record_date = as_date(min(dt_commenced)),
+         last_record_date = as_date(max(dt_commenced)),
+         quarter = quarter(dt_completed, with_year = FALSE),
+         year = year(dt_completed)) %>%
+  ungroup() %>%
+  mutate(quarter_cat = glue::glue("{year}.Q{quarter}")) %>%
+  rowwise() %>%
+  mutate(quarter_sort = sum(quarter, year)) %>%
+  ungroup() %>%
+  mutate(quarter_cat = fct_reorder(quarter_cat, quarter_sort),
+         quarter_cat = recode(quarter_cat,
+                              "NA.QNA" = "No dt_completed")) %>%
+  select(-year, -quarter, -quarter_sort) %>%
+  count(redcap_data_access_group, first_record_date, last_record_date, quarter_cat,
+        .drop = FALSE) %>%
+  pivot_wider(names_from = quarter_cat, values_from = n) %>%
+  rowwise() %>%
+  mutate(n_total = sum(c_across(contains(c("Q", "No")))))
+        
+table_df <- table_df %>%
+  arrange(desc(n_total)) %>%
+  rename(Site = redcap_data_access_group,
+         `Date of first record` = first_record_date,
+         `Date of last record` = last_record_date,
+         Total = n_total)
+  
+table_df %>% 
+  kbl(booktabs = TRUE,
+      longtable = TRUE, 
+        caption = "Recruitment by site and quarter",
+        align = 'c') %>%
+  kable_styling(position = "center",
+                bootstrap_options = "striped") %>%
+  scroll_box(width = "100%", height = "1000px")
+
+table_df %>%
+  download_this(
+    output_name = "Recruitment by site and quarter",
+    output_extension = ".xlsx",
+    button_label = "Download datasets as xlsx",
+    button_type = "warning",
+    has_icon = TRUE,
+    icon = "fa fa-save"
+  )
+```
+
+# Recruitment by site and month
+```{r monthly}
+table_df <-
+  data_cleaned %>%
+  group_by(redcap_data_access_group) %>%
+  mutate(first_record_date = as_date(min(dt_commenced)),
+         last_record_date = as_date(max(dt_commenced)),
+         month = month(dt_completed),
+         month_cat = month(dt_completed, label = TRUE),
+         year = year(dt_completed)
+         ) %>%
+  ungroup() %>%
+  mutate(month_cat = glue::glue("{year}.{month_cat}")) %>%
+  rowwise() %>%
+  mutate(month_sort = sum(month/12, year)) %>%
+  ungroup() %>%
+  mutate(month_cat = fct_reorder(month_cat, month_sort),
+         month_cat = recode(month_cat,
+                              "NA.NA" = "No dt_completed")) %>%
+  select(-year, -month, -month_sort) %>%
+  count(redcap_data_access_group, first_record_date, last_record_date, month_cat,
+        .drop = FALSE) %>%
+  pivot_wider(names_from = month_cat, values_from = n) %>%
+  rowwise() %>%
+  mutate(n_total = sum(c_across(contains(c("20", "No")))))
+        
+
+table_df <-
+  table_df %>%
+  arrange(desc(n_total)) %>%
+  rename(Site = redcap_data_access_group,
+         `Date of first record` = first_record_date,
+         `Date of last record` = last_record_date,
+         Total = n_total) 
+
+table_df %>%
+  kbl(booktabs = TRUE,
+      longtable = TRUE, 
+        caption = "Recruitment by site and month",
+        align = 'c') %>%
+  kable_styling(position = "center",
+                bootstrap_options = "striped") %>%
+  scroll_box(width = "100%", height = "1000px")
+
+table_df %>%
+  download_this(
+    output_name = "Recruitment by site and month",
+    output_extension = ".xlsx",
+    button_label = "Download datasets as xlsx",
+    button_type = "warning",
+    has_icon = TRUE,
+    icon = "fa fa-save"
+  )
+```
+
