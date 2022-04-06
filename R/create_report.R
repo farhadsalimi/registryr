@@ -17,8 +17,7 @@ create_adnet_report <- function(report = "validation",
                           registry_token = getPass::getPass(msg = "API token for REDCap project: ADNeT Registry"),
                           holding_token = getPass::getPass(msg = "API token for REDCap project: ADNeT Holding Database"),
                           optout = getPass::getPass(msg = "API token for REDCap project: ADNeT Opt-out Database"),
-                          site_name = "all",
-                          site_dag) {
+                          site_name = "all") {
 
   if(!(report %in% c("validation", "invoice", "internal"))) stop("Unknown report, accepted options are: 'validation', 'invoice, or 'internal'")
 
@@ -88,8 +87,7 @@ create_adnet_report <- function(report = "validation",
       params = list(registry_token = registry_token,
                     holding_token = holding_token,
                     optout = optout,
-                    site_name = site_name,
-                    site_dag = site_dag)))
+                    site_name = site_name)))
 
     ## Open report
     report_path <- path.expand(file.path(output_dir, output_file))

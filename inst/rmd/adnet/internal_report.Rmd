@@ -10,7 +10,6 @@ params:
   holding_token: yyyy
   optout:  zzzz
   site_name: all
-  site_dag: xxx
 ---
 
 ```{r setup, include=FALSE}
@@ -38,8 +37,9 @@ conflict_prefer("filter", "stats")
 ```{r data}
 data <- data_cleaned
 eval_next <- str_to_lower(params$site_name) != "all"
-sites_dag <- read_excel(here::here(params$site_dag))
+# sites_dag <- read_excel(here::here(params$site_dag))
 ```
+
 
 ```{r subset the data, eval = eval_next}
 data_all <-
@@ -60,6 +60,7 @@ data_all <-
   data %>%
   rename(site_name = redcap_data_access_group) %>%
   mutate(category = "All sites")
+
 
 data <-
   data %>%
@@ -94,7 +95,7 @@ n_sites <-
   nrow()
 ```
 
-The total number of patients across the three ADNeT databases: `r n_participating` from `r n_sites` sites
+The total number of unique patients across the three ADNeT databases: `r n_participating` from `r n_sites` sites
 
 -   Of these patients, `r n_adnet` (`r round(100*n_adnet/n_participating, 1)`%) are in the ADNeT registry
 
@@ -107,24 +108,24 @@ A breakdown of participation by database and state/site can be seen in the table
 ```{r}
 table <-
   data_all %>%
-  count(site_state, database) %>%
-  mutate(site_state = fct_explicit_na(site_state, "Missing"),
-         site_state = fct_reorder(site_state, n, sum),
-         site_state = fct_relevel(site_state, "Missing", after = 0),
+  count(state, database) %>%
+  mutate(state = fct_explicit_na(state, "Missing"),
+         state = fct_reorder(state, n, sum),
+         state = fct_relevel(state, "Missing", after = 0),
          n_tot = sum(n))%>%
   pivot_wider(names_from = database, values_from = n)%>%
   adorn_totals("row") %>%
-  pivot_longer(-c(site_state, n_tot)) 
+  pivot_longer(-c(state, n_tot)) 
 
 table <-
   table %>%
-  mutate(n_tot = if_else(site_state == "Total", NA_integer_, n_tot)) %>%
+  mutate(n_tot = if_else(state == "Total", NA_integer_, n_tot)) %>%
   fill(n_tot, .direction = "downup") %>%
   mutate(pct = percent(value / n_tot, accuracy = 1),
          n_pct = glue::glue("{comma(value)} ({pct})"))
 
 table %>%
-  select(State = site_state,
+  select(State = state,
          Database = name,
          `N (%)` = n_pct) %>%
   pivot_wider(names_from = Database, values_from = `N (%)`) %>%
@@ -137,8 +138,8 @@ table %>%
 table <-
   data_all %>%
   dplyr::filter(data_completeness___1 == "Checked" | is.na(data_completeness___1)) %>%
-  mutate(site_state = fct_explicit_na(site_state, "Missing")) %>%
-  select(dt_completed, site_state, site_name, database, opt_out_timepoint, opt_out_yes___1) %>%
+  mutate(state = fct_explicit_na(state, "Missing")) %>%
+  select(dt_completed, state, site_name, database, opt_out_timepoint, opt_out_yes___1) %>%
   mutate(
     database = if_else(
       opt_out_timepoint == "At time of diagnosis" | opt_out_yes___1 == "Checked",
@@ -151,15 +152,15 @@ table <-
 
 table <-
   table %>%
-  group_by(site_state, site_name, database) %>%
-  mutate(first_record_submitted = as_date(min(dt_completed))) %>%
+  group_by(site_name) %>%
+  mutate(first_record_submitted = as_date(min(dt_completed, na.rm = TRUE))) %>%
   ungroup() %>%
   select(-dt_completed)
 
 table <-
   table %>%
-  count(site_state, site_name, first_record_submitted, database, .drop = FALSE) %>%
-  group_by(site_state) %>%
+  count(state, site_name, first_record_submitted, database, .drop = FALSE) %>%
+  group_by(state) %>%
   mutate(pct = percent(n / sum(n), accuracy = 0.1)) %>%
   ungroup() %>%
   mutate(n_pct = glue::glue("{comma(n, accuracy = 1)} ({pct})")) %>%
@@ -167,54 +168,180 @@ table <-
 
 table %>%
   pivot_wider(names_from = database, values_from = n_pct) %>%
-  arrange(site_state, desc(parse_number(`ADNeT Registry`)))%>%
+  arrange(state, desc(parse_number(`ADNeT Registry`)))%>%
   rename(Site = site_name,
-         Jurisdiction = site_state,
+         Jurisdiction = state,
          `First record submitted on` = first_record_submitted) %>%
   flextable()
 ```
 
 ## Opt-out rate
 
-```{r, fig.width = 7, dpi = 300}
-n_optout_numerator <- 
+### Overall opt-out table
+
+```{r, fig.width = 7}
+#calc_opt_out <- read_xlsx(here::here(glue::glue("assets/","Opt_out_rate.xlsx")))
+
+# for i in (1:nrow(calc_opt_out)){
+#  QI.variables.list[[i]] <- data_all %>%
+#     dplyr::filter_(calc_opt_out[i,"Denominator"]) %>%
+#     summarise(complete = sum(eval(parse(text=calc_opt_out[i,"Numerator"])), na.rm = T),
+#               total = n(),
+#               opt_out = calc.QI[i,"Opt_out"]) 
+# }
+
+## Overall Opt-Out
+overall_num <-
   data_all %>%
-  dplyr::filter(opt_out_yes___1 == "Checked" | database == "ADNeT Opt-out Database") %>%
+  dplyr::filter(opt_out_yes___1 == "Checked"|
+                database == "ADNeT Opt-out Database"|
+                (database == "ADNeT Holding Database" & opt_out_diagnosis == "Yes")) %>%
   nrow()
 
-n_optout_denominator <- 
+overall_den <-
   data_all %>%
-  dplyr::filter(!is.na(opt_out_group) | opt_out_yes___1 == "Checked" | database == "ADNeT Opt-out Database") %>%
+  dplyr::filter(database == "ADNeT Opt-out Database"|
+                  opt_out_group %in% c(
+        "Patient contacted",
+        "Person responsible contacted",
+        "Carer contacted"
+      )) %>%
   nrow()
 
-graph_df <-
+## Complete Recruitment
+compl_den <- data_all %>%
+  dplyr::filter(database == "ADNeT Opt-out Database"|
+                (database == "ADNeT Registry" & 
+                  opt_out_group %in% c(
+        "Patient contacted",
+        "Person responsible contacted",
+        "Carer contacted"
+      ))) %>%
+  nrow()
+
+## At Diagnosis  
+diag_num <-
   data_all %>%
-  dplyr::filter(!is.na(opt_out_group) | opt_out_yes___1 == "Checked" | database == "ADNeT Opt-out Database") %>%
-  mutate(year_month = as_date(round_date(dt_commenced, "month"))) %>%
-  count(year_month, opt_out_yes___1, .drop = FALSE) %>%
-  group_by(year_month) %>%
-  mutate(rate = n / sum(n)) %>%
-  dplyr::filter(opt_out_yes___1 == "Checked") %>% 
-  ungroup()
+  dplyr::filter((database == "ADNeT Opt-out Database" & opt_out_timepoint == "At time of diagnosis")|
+                (database == "ADNeT Holding Database" & opt_out_diagnosis == "Yes")) %>%
+  nrow()
 
-last_rate <-
-  graph_df %>%
-  slice_max(year_month) %>%
-  pull(rate)
+## During Recruitment
+recruit_num <-
+  data_all %>%
+  dplyr::filter(database %in% c("ADNeT Opt-out Database", "ADNeT Holding Database") 
+                & opt_out_timepoint == "During recruitment" 
+                & opt_out_yes___1 == "Checked") %>%
+  nrow()
 
-overall_rate <- percent(n_optout_numerator / n_optout_denominator, accuracy = 1)
+## Post Recruitment
+post_recruit_num <-
+  data_all %>%
+  dplyr::filter(database %in% c("ADNeT Opt-out Database", "ADNeT Holding Database") 
+                & opt_out_timepoint == "Post recruitment" 
+                & opt_out_yes___1 == "Checked") %>%
+  nrow()
+
+## Externam denominator
+overall_den_ext <- data_all %>%
+  dplyr::filter(!is.na(database)) %>%
+  nrow()
+
+compl_den_ext <- data_all %>%
+  dplyr::filter(database != "ADNeT Holding Database")%>%
+  nrow()
+
+opt_out_rate <- data.frame(
+  `opt-out rate` = c("Overall opt-out rate",
+                     "Overall opt-out rate for those who complete recruitment",
+                     "Overall opt-out rate at diagnosis",
+                     "Overall opt-out rate during recruitment",
+                     "Overall post-recruitment opt-out rate"),
+ 
+  denominator_int = c(overall_den, 
+                  compl_den, 
+                  overall_den, 
+                  overall_den,
+                  overall_den),
+  
+  denominator_ext = c(overall_den_ext, 
+                  compl_den_ext, 
+                  overall_den_ext, 
+                  overall_den_ext,
+                  overall_den_ext),
+  
+  numerator = c(overall_num,
+              overall_num,
+              diag_num,
+              recruit_num, 
+              post_recruit_num)
+) %>%
+  mutate(`Internal value – excluding WOC` = percent(numerator/denominator_int, accuracy = 1),
+         `External value – including WOC` = percent(numerator/denominator_ext, accuracy = 1))
+
+opt_out_rate %>% 
+  select(`Opt out rate` = opt.out.rate,
+         `Internal value – excluding WOC`,
+         `External value – including WOC`) %>%
+  flextable() %>%
+  flextable::width(width = 1.5)
+```
+
+### Culminative overall opt-out rates (internal value) over the past 12 months
+
+```{r monthly opt out, fig.width = 7, dpi = 300}
+
+## Cumulative monthly opt-out rate
+monthly_dem <- data_all %>%
+  mutate(month_year = case_when(database == "ADNeT Holding Database" ~ as_date(round_date(as.Date(dt_completed), "month")),
+                                database =="ADNeT Registry" ~ as_date(round_date(date_of_data_transfer, "month")),
+                                database == "ADNeT Opt-out Database" ~ as_date(round_date(dt_optout, "month")))) %>%
+  group_by(month_year) %>%
+  summarise(n = n()) %>%
+  mutate(csum = cumsum(n)) %>%
+  drop_na()
+
+monthly_num <- data_all %>%
+  dplyr::filter(opt_out_yes___1 == "Checked"|
+                database == "ADNeT Opt-out Database"|
+                (database == "ADNeT Holding Database" & opt_out_diagnosis == "Yes")) %>%
+  mutate(month_year = as_date(round_date(dt_optout, "month"))) %>%
+  group_by(month_year) %>%
+  summarise(opt_out = n()) %>%
+  mutate(csum_opt_out = cumsum(opt_out)) %>%
+  drop_na()
+
+graph_df <- monthly_dem %>%
+  left_join(monthly_num, by = "month_year") %>%
+  mutate(rate = csum_opt_out/csum)
+
   
 graph_df %>%
-  ggplot(aes(x = year_month, y = rate)) +
-  geom_line() +
-  scale_x_date(expand = c(0,0)) +
+  dplyr::filter(difftime(Sys.Date(),month_year, "days") <= 365) %>%
+  ggplot(aes(x = month_year, y = rate)) +
+  geom_line(size = 1.3, color = "#00A480") +
+  scale_x_date(expand = c(0.02,1.5), 
+               date_breaks = "1 month", 
+               date_labels =  "%b %Y") +
   scale_y_continuous(limits = c(0, NA),
-                     labels = percent,
-                     sec.axis = dup_axis(name = "",
-                                         breaks = c(last_rate))) +
+                     labels = percent) +
+  geom_point(shape = 21,
+             size = 2,
+             lwd = 1.5,
+             show.legend = T,
+              alpha=1,
+             fill = "#00A480",
+             colour = "#00A480") +
   labs(x = "Date",
-       y = "Opt-out rate",
-       caption = glue::glue("Overall opt-out rate is {overall_rate}"))
+       y = "Opt-out rate")+
+  theme(text = element_text(size = 8),
+        axis.ticks = element_line(),
+        axis.text = element_text(size = 8),
+        axis.title = element_text(face = "bold"),
+        axis.line = element_line(),
+        axis.text.y = element_text(margin = margin(0.05,0,0.25,0)),
+        plot.subtitle  = element_text(size = 10),
+        panel.grid.minor = element_blank())
 ```
 
 \newpage
@@ -293,7 +420,7 @@ graph_df %>%
         legend.box = "horizontal")
 ```
 
-```{r}
+```{r, fig.width = 9, fig.height = 8, dpi = 300, fig.showtext = TRUE}
 graph_df %>%
   dplyr::filter(name == "Newly added") %>%
   ggplot(aes(
@@ -396,7 +523,7 @@ graph_df %>%
   
 ```
 
-```{r}
+```{r, fig.width = 9, fig.height = 8, dpi = 300, fig.showtext = TRUE}
 graph_df %>%
   dplyr::filter(name == "Newly added") %>%
   ggplot(aes(
@@ -712,60 +839,60 @@ all_df <-
   dplyr::filter(database == "ADNeT Registry", dx %in% c("Dementia", "MCI")) %>%
   mutate(
     mobil = case_when(
-      mobil == "Yes, independent with/without gait aid" ~ 1,
-      TRUE ~ 0
+      mobil == "Yes, independent with/without gait aid" ~ "Yes",
+      TRUE ~ "No"
     ) %>%
-      factor(levels = c(0, 1)),
+      factor(levels = c("No", "Yes")),
     bladder_bowel_inc = case_when(
-      bladder_bowel_inc == "Continent of urine and faeces" ~ 1,
-      TRUE ~ 0
+      bladder_bowel_inc == "Continent of urine and faeces" ~ "Yes",
+      TRUE ~ "No"
     ) %>%
-      factor(levels = c(0, 1)),
+      factor(levels = c("No", "Yes")),
     pt_stroke = case_when(
-      pt_stroke > 0 & pt_stroke != 99 ~ 1,
-      TRUE ~ 0
+      pt_stroke > 0 & pt_stroke != 99 ~ "Yes",
+      TRUE ~ "No"
     ) %>%
-      factor(levels = c(0, 1)),
+      factor(levels = c("No", "Yes")),
     pt_hypertension = case_when(
-      str_detect(pt_hypertension, "Yes") ~ 1,
-      TRUE ~ 0
+      str_detect(pt_hypertension, "Yes") ~ "Yes",
+      TRUE ~ "No"
     ) %>%
-      factor(levels = c(0, 1)),
+      factor(levels = c("No", "Yes")),
     pt_diabetes = case_when(
-      pt_diabetes == "Yes" ~ 1,
-      TRUE ~ 0
+      pt_diabetes == "Yes" ~ "Yes",
+      TRUE ~ "No"
     ) %>%
-      factor(levels = c(0, 1)),
+      factor(levels = c("No", "Yes")),
     pt_heart_disease = case_when(
-      pt_heart_disease == "Yes" ~ 1,
-      TRUE ~ 0
+      pt_heart_disease == "Yes" ~ "Yes",
+      TRUE ~ "No"
     ) %>%
-      factor(levels = c(0, 1)),
+      factor(levels = c("No", "Yes")),
     pt_cancer = case_when(
-      pt_cancer == "Yes" ~ 1,
-      TRUE ~ 0
+      pt_cancer == "Yes" ~ "Yes",
+      TRUE ~ "No"
     ) %>%
-      factor(levels = c(0, 1)),
+      factor(levels = c("No", "Yes")),
     pt_falls = case_when(
-      pt_falls == "Yes" ~ 1,
-      TRUE ~ 0
+      pt_falls == "Yes" ~ "Yes",
+      TRUE ~ "No"
     ) %>%
-      factor(levels = c(0, 1)),
+      factor(levels = c("No", "Yes")),
     instrumental_adl = case_when(
-      instrumental_adl == "Yes" ~ 1,
-      TRUE ~ 0
+      instrumental_adl == "Yes" ~ "Yes",
+      TRUE ~ "No"
     ) %>%
-      factor(levels = c(0, 1)),
+      factor(levels = c("No", "Yes")),
     personal_adl = case_when(
-      personal_adl == "Yes" ~ 1,
-      TRUE ~ 0
+      personal_adl == "Yes" ~ "Yes",
+      TRUE ~ "No"
     ) %>%
-      factor(levels = c(0, 1)),
+      factor(levels = c("No", "Yes")),
     pt_driving = case_when(
-      pt_driving == "Yes" ~ 1,
-      TRUE ~ 0
+      pt_driving == "Yes" ~ "Yes",
+      TRUE ~ "No"
     ) %>%
-      factor(levels = c(0, 1))
+      factor(levels = c("No", "Yes"))
   )
 
 tbl_all <- all_df %>%
@@ -846,6 +973,40 @@ summary(tab12, labelTranslations = tbl_labels)
 \newpage
 
 ## Clinical Processes
+```{r, results='asis'}
+all_df <-
+  data %>%
+  dplyr::filter(database == "ADNeT Registry",
+                pt_exist_dx_mci != "Yes") %>%
+  select(
+    dx,
+    site_name,
+
+    # Subgroup 1: Referral time intervals
+    pt_time_to_appt, date_ref, initial_appt, date_dx) %>%
+  transmute(
+    dx = dx,
+    site = site_name,
+    pt_time_ref_dx = difftime(date_dx, date_ref, unit = "days"),
+    pt_time_to_appt = pt_time_to_appt,
+    pt_time_appt_dx = difftime(date_dx, initial_appt, unit = "days"))
+
+tbl_labels <-
+  list(
+    pt_time_ref_dx = "Referral to diagnosis, median (Q1-Q3)",
+    pt_time_to_appt = "Referral to first appointment, median (Q1-Q3)",
+    pt_time_appt_dx = "First appointment to diagnosis, median (Q1-Q3)"
+  )
+
+tab1 <- tableby(dx ~ pt_time_ref_dx + pt_time_to_appt + pt_time_appt_dx,
+data = all_df,
+control = tbl_control,
+cat.simplify = TRUE
+)
+
+summary(tab1, labelTranslations = tbl_labels)
+```
+
 
 ```{r,  results='asis'}
 all_df <-
@@ -854,9 +1015,10 @@ all_df <-
   select(
     dx,
     site_name,
+    date_ref,
 
     # Subgroup 1: Referral time intervals
-    pt_time_to_appt, date_ref, initial_appt, date_dx,
+    #pt_time_to_appt,  initial_appt, date_dx,
 
     # Subgroup 2: Investigations
     blood_test,
@@ -878,9 +1040,9 @@ all_df <-
   transmute(
     dx = dx,
     site = site_name,
-    pt_time_ref_dx = difftime(date_dx, date_ref, unit = "days"),
-    pt_time_to_appt = pt_time_to_appt,
-    pt_time_appt_dx = difftime(date_dx, initial_appt, unit = "days"),
+    # pt_time_ref_dx = difftime(date_dx, date_ref, unit = "days"),
+    # pt_time_to_appt = pt_time_to_appt,
+    # pt_time_appt_dx = difftime(date_dx, initial_appt, unit = "days"),
     unknown_referral = is.na(date_ref),
     blood_test = case_when(
       blood_test == "Yes" ~ "Completed",
@@ -959,13 +1121,10 @@ all_df <-
 
 tbl_labels <-
   list(
-    pt_time_ref_dx = "Referral to diagnosis, median (Q1-Q3)",
-    pt_time_to_appt = "Referral to first appointment, median (Q1-Q3)",
-    pt_time_appt_dx = "First appointment to diagnosis, median (Q1-Q3)",
     unknown_referral = "Unknown referral date, n (\\%)",
     blood_test = "Core blood tests, n (\\%)",
-    structural_imaging___1 = "CT Brain",
     structural_imaging___2 = "MRI Brain",
+    structural_imaging___1 = "CT Brain",
     structural_imaging___3 = "None completed",
     structural_imaging___99 = "Not stated",
     functional_imaging___2 = "FDG PET",
@@ -987,7 +1146,7 @@ tbl_labels <-
 #   tableby.control(numeric.stats = c("Nmiss", "medianq1q3"),
 #                   stats.labels = c(Nmiss = "Missing"))
 
-tab1 <- tableby(dx ~ pt_time_ref_dx + pt_time_to_appt + pt_time_appt_dx + unknown_referral + blood_test +
+tab1 <- tableby(dx ~ unknown_referral + blood_test +
   structural_imaging___1 + structural_imaging___2 + structural_imaging___3 +
   structural_imaging___99 + functional_imaging___2 + functional_imaging___1 +
   functional_imaging___3_4 + functional_imaging___5 +
@@ -1000,5 +1159,87 @@ cat.simplify = TRUE
 
 summary(tab1, labelTranslations = tbl_labels)
 ```
+\newpage
 
+## Baseline Patient and Survey Results
+
+```{r response rate, results='asis'}
+
+all_df <- data %>% 
+  dplyr::filter(
+      (database == "ADNeT Registry" &
+      #  dt_pes_sent >= "2021-01-16" &
+      # pt_optoutcapacity == "Yes" & dx_communicated == "Yes" &
+      !is.na(dt_bs_ptsur_sent)) |
+
+      (database == "ADNeT Registry" &
+      #  dt_pes_sent >= "2021-01-16" &
+      # (pr_also_cr == "Yes" | (pt_optoutcapacity == "Yes" & cr_dx_communicated == "Yes")) &
+      !is.na(dt_bs_crsur_sent))
+  ) %>%
+  transmute(
+    
+    site_name = site_name, 
+    
+    patient.survey = case_when(
+      
+      database == "ADNeT Registry" &
+      !between(dt_bs_ptsur_sent,Sys.Date()-14, Sys.Date()) &
+      is.na(bs_ptsur_rts) & 
+      is.na(bs_ptsur_rem_rts) &
+      adnet_registry_baseline_patient_survey_complete == "Complete" ~ 1,
+
+      database == "ADNeT Registry" &
+      dt_pes_sent >= "2021-01-16" &
+      pt_optoutcapacity == "Yes" & dx_communicated == "Yes" &
+      is.na(bs_ptsur_rts) &
+      !is.na(dt_bs_ptsur_sent) ~ 0
+    ) %>% factor(levels = c(0,1)),
+    
+    carer.survey = case_when(
+      
+      database == "ADNeT Registry" & 
+        dt_pes_sent >= "2021-01-16" &
+      # dt_bs_crsur_en <= "2021-11-08" & dt_bs_crsur_rec <= "2021-11-08" &
+      (pr_also_cr == "Yes" | (pt_optoutcapacity == "Yes" & cr_dx_communicated == "Yes")) &
+      is.na(bs_crsur_rts) &
+      !between(dt_bs_crsur_sent,Sys.Date()-14, Sys.Date()) &
+      adnet_registry_baseline_carer_survey_complete == "Complete" ~ 1,
+      
+      database == "ADNeT Registry" &
+      is.na(bs_crsur_rts) &
+      !is.na(dt_bs_crsur_sent) ~ 0
+    ) %>% factor(levels = c(0,1))
+  ) %>%
+  mutate(site_name = "All sites")
+
+tbl_control <-
+  tableby.control(
+    test = FALSE,
+    total = FALSE,
+    numeric.stats = c("N",  "meansd", "medianq1q3", "range", "Nmiss2"),
+    cat.stats = c("countpct"),
+    stats.labels = c(Nmiss2 = "Missing"),
+    digits = 1
+  )
+
+tbl_labels <-
+  list(
+    # pt_time_ref_dx = "Referral to diagnosis, median (Q1-Q3)",
+    # pt_time_to_appt = "Referral to first appointment, median (Q1-Q3)",
+    # pt_time_appt_dx = "First appointment to diagnosis, median (Q1-Q3)",
+    patient.survey = "Patient survey, n/N (\\%)",
+    carer.survey = "Carer survey, n/N (\\%)"
+  )
+
+
+tab1 <- tableby(site_name ~ patient.survey + carer.survey,
+data = all_df,
+control = tbl_control,
+cat.simplify = TRUE
+)
+
+
+summary(tab1, labelTranslations = tbl_labels)
+```
 

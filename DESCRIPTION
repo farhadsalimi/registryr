@@ -19,6 +19,7 @@ Imports:
     tidyr,
     ggplot2,
     readxl,
+    googlesheets4,
     forcats,
     stringr,
     lubridate,

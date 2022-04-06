@@ -5,10 +5,14 @@
 \title{Create ReadMe.md files}
 \usage{
 create_adnet_report(
-  report = c("validation", "invoice", "internal"),
-  registry_token = getPass(msg = "API token for REDCap project: ADNeT Registry"),
-  holding_token = getPass(msg = "API token for REDCap project: ADNeT Holding Database"),
-  optout = getPass(msg = "API token for REDCap project: ADNeT Opt-out Database")
+  report = "validation",
+  registry_token = getPass::getPass(msg =
+    "API token for REDCap project: ADNeT Registry"),
+  holding_token = getPass::getPass(msg =
+    "API token for REDCap project: ADNeT Holding Database"),
+  optout = getPass::getPass(msg =
+    "API token for REDCap project: ADNeT Opt-out Database"),
+  site_name = "all"
 )
 }
 \arguments{

@@ -20,6 +20,11 @@ data_optout <- redcap_read(
   export_data_access_groups = TRUE,
   raw_or_label = "label"
 )$data
+
+googlesheets4::gs4_deauth()
+sites_dag <-
+  googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1SztKzzncK6q3Bn9YboVSMlpft6b4SkUqejEeKe-UqWw/edit?usp=sharing") %>%
+  clean_names()
 ```
 
 ```{r merge, include=FALSE}
@@ -38,6 +43,8 @@ data_holding <-
     as.character
   ))
 
+
+
 data <-
   bind_rows(list(
     data_registry = data_registry,
@@ -52,65 +59,39 @@ data <-
     "data_holding" = "ADNeT Holding Database",
     "data_optout" = "ADNeT Opt-out Database"
   ))
+
+data_cleaned <-
+  data %>%
+  distinct( pt_firstname, pt_surname, pt_dob, .keep_all = TRUE) %>%
+  left_join(sites_dag, on = "redcap_data_access_group") %>%
+  dplyr::filter(data_completeness___1 == "Checked" | is.na(data_completeness___1)) %>%
+  mutate(
+    database = factor(database, c("ADNeT Registry", "ADNeT Holding Database", "ADNeT Opt-out Database")),
+    state = case_when(
+      state %in% c(
+        "SA"
+      ) ~ "South Australia",
+      state %in% c(
+        "NSW"
+      ) ~ "New South Wales",
+      state %in% c(
+        "TAS"
+      ) ~ "Tasmania",
+      state %in% c(
+        "VIC"
+      ) ~ "Victoria",
+      state %in% c(
+        "QLD"
+      ) ~ "Queensland"
+    ))
 ```
 
 
 ```{r variable_cleaning, include=FALSE}
 data_cleaned <-
-  data %>%
-  distinct(pt_firstname, pt_surname, pt_dob, .keep_all = TRUE) %>%
-  dplyr::filter(data_completeness___1 == "Checked" | is.na(data_completeness___1)) %>%
+  data_cleaned %>%
   mutate(
-    database = factor(database, c("ADNeT Registry", "ADNeT Holding Database", "ADNeT Opt-out Database")),
-    dx = factor(dx, levels = c("Dementia", "MCI")),
-    site_state = case_when(
-      redcap_data_access_group %in% c(
-        "Flinders Medical Centre Memory and Aged Care Clinics",
-        "RAH Memory Service",
-        "Sensus Cognition",
-        "SpARC Memory Clinic",
-        "TQEH Memory Service (CALHN)"
-      ) ~ "South Australia",
-      redcap_data_access_group %in% c(
-        "Brellah Clinic",
-        "Brodaty Clinic",
-        "Burwood Specialists",
-        "Central Coast Neurosciences - ProCognition Clinic",
-        "Hornsby Ku-Ring-Gai Memory Clinic",
-        "MLHD Aged Care Service",
-        "PoW Cognitive Disorders Clinic",
-        "PoW Neuropsychiatry",
-        "Memory Assessment Program (MAP) Northern NSW Local Health District",
-        "Salus Clinic",
-        "Shoalhaven",
-        "Shoalhaven - Milton"
-      ) ~ "New South Wales",
-      redcap_data_access_group %in% c(
-        "Calvary Sessional Rooms",
-        "David Dunbabin Aged Care",
-        "The ISLAND Clinic"
-      ) ~ "Tasmania",
-      redcap_data_access_group %in% c(
-        "Austin CDAMS",
-        "Barwon CDAMS",
-        "Caulfield CDAMS",
-        "Irene Wagner's Clinic",
-        "RMH Neuropsychiatry",
-        "Western Health CDAMS"
-      ) ~ "Victoria",
-      redcap_data_access_group %in% c(
-        "Cairns Memory Clinic",
-        "Cairns Memory Clinic, Innisfail Memory Clinic",
-        "Dementia Assessment Service",
-        "Innisfail Memory Clinic",
-        "Ipswich Memory Clinic",
-        "Mareeba Memory Clinic",
-        "Neurosciences Queensland",
-        "Robert Adam Neurology",
-        "The Memory Clinic Princess Alexandra Hospital",
-        "The Prince Charles Hospital Memory Clinic"
-      ) ~ "Queensland"
-    ),
+   dx = factor(dx, levels = c("Dementia", "MCI")),
 
     # pt_countryofbirth = fct_expand(
     #   pt_countryofbirth,
