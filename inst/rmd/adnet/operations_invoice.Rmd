@@ -52,8 +52,8 @@ data_cleaned <- data_cleaned %>% mutate(
 table_df <-
   data_cleaned %>%
   group_by(redcap_data_access_group) %>%
-  summarise(first_record_date = as_date(min(dt_commenced)),
-            last_record_date = as_date(max(dt_commenced)),
+  summarise(first_record_date = as_date(min(dt_completed, na.rm = TRUE)),
+            last_record_date = as_date(max(dt_completed, na.rm = TRUE)),
             n_adnet_registry = sum(database == "ADNeT Registry"),
             n_holding_database = sum(database == "ADNeT Holding Database"),
             n_optout_database = sum(database == "ADNeT Opt-out Database")) %>%
@@ -97,8 +97,8 @@ table_df %>%
 table_df <-
   data_cleaned %>%
   group_by(redcap_data_access_group) %>%
-  mutate(first_record_date = as_date(min(dt_commenced)),
-         last_record_date = as_date(max(dt_commenced)),
+  mutate(first_record_date = as_date(min(dt_completed, na.rm = TRUE)),
+            last_record_date = as_date(max(dt_completed, na.rm = TRUE)),
          quarter = quarter(dt_completed, with_year = FALSE),
          year = year(dt_completed)) %>%
   ungroup() %>%
@@ -148,8 +148,8 @@ table_df %>%
 table_df <-
   data_cleaned %>%
   group_by(redcap_data_access_group) %>%
-  mutate(first_record_date = as_date(min(dt_commenced)),
-         last_record_date = as_date(max(dt_commenced)),
+  mutate(first_record_date = as_date(min(dt_completed, na.rm = TRUE)),
+            last_record_date = as_date(max(dt_completed, na.rm = TRUE)),
          month = month(dt_completed),
          month_cat = month(dt_completed, label = TRUE),
          year = year(dt_completed)
