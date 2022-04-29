@@ -665,7 +665,7 @@ tbl_control <-
     digits = 1
   )
 
-tab1 <- tableby(category ~ pt_age_diagnosis + pt_sex + pt_atsi + country_of_birth + preferred_language +
+tab1 <- tableby(dx ~ pt_age_diagnosis + pt_sex + pt_atsi + country_of_birth + preferred_language +
   pt_edu + pt_emp_status + pt_residential + pt_living,
 data = tbl_df,
 control = tbl_control
