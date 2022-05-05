@@ -134,66 +134,6 @@ data_cleaned <-
       pr_dx_communicated == "Yes" & is.na(pr_address) & database != "ADNeT Opt-out Database" ~ 6,
       TRUE ~ as.numeric(woc_group)
     ),
-    pt_health = case_when(
-      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_health
-    ),
-    pt_wellbeing = case_when(
-      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_wellbeing
-    ),
-    pt_exp_dx = case_when(
-      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_exp_dx
-    ),
-    pt_exp_deci = case_when(
-      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_exp_deci
-    ),
-    pt_exp_quest = case_when(
-      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_exp_quest
-    ),
-    pt_exp_concern = case_when(
-      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_exp_concern
-    ),
-    pt_exp_treatm = case_when(
-      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_exp_treatm
-    ),
-    pt_exp_advice = case_when(
-      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_exp_advice
-    ),
-    pt_exp = case_when(
-      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_exp
-    ),
-    pt_exp_expect = case_when(
-      dt_bs_ptsur_rec <= "2021-11-08" & dt_bs_ptsur_sent < "2021-10-25" ~ pt_exp_expect
-    ),
-    cr_health = case_when(
-      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_health
-    ),
-    cr_wellbeing = case_when(
-      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_wellbeing
-    ),
-    cr_adeq_info = case_when(
-      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_adeq_info
-    ),
-    cr_involvment = case_when(
-      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_involvment
-    ),
-    cr_opp_quest = case_when(
-      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_opp_quest
-    ),
-    cr_listened = case_when(
-      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_listened
-    ),
-    cr_treated = case_when(
-      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_treated
-    ),
-    cr_advice_given = case_when(
-      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_advice_given
-    ),
-    cr_exp = case_when(
-      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_exp
-    ),
-    cr_exp_expect = case_when(
-      dt_bs_crsur_rec <= "2021-11-08" & dt_bs_crsur_sent < "2021-10-25" ~ cr_exp_expect
-    ),
     woc_group = factor(
       woc_group,
       levels = c(1, 2, 3, 4, 5, 6),

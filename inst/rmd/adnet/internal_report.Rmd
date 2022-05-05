@@ -36,12 +36,12 @@ conflict_prefer("filter", "stats")
 
 ```{r data}
 data <- data_cleaned
-eval_next <- str_to_lower(params$site_name) != "all"
+eval_site <- str_to_lower(params$site_name) != "all"
 # sites_dag <- read_excel(here::here(params$site_dag))
 ```
 
 
-```{r subset the data, eval = eval_next}
+```{r subset the data, eval = eval_site}
 data_all <-
   data %>%
   rename(site_name = redcap_data_access_group) %>%
@@ -49,13 +49,14 @@ data_all <-
     params$site_name,
     "Other sites"
   ))
+
 data <-
   data %>%
   rename(site_name = redcap_data_access_group) %>%
   dplyr::filter(site_name == params$site_name)
 ```
 
-```{r, eval = !eval_next}
+```{r, eval = !eval_site}
 data_all <-
   data %>%
   rename(site_name = redcap_data_access_group) %>%
@@ -175,6 +176,34 @@ table %>%
   flextable()
 ```
 
+
+```{r pyramid_plot, eval = eval_site, fig.height = 7, dpi = 300}
+pyramid_df <-
+  data_all %>%
+  select(pt_sex, pt_age_diagnosis, category) %>%
+  dplyr::filter(pt_sex %in% c("Male", "Female"),
+                !is.na(pt_age_diagnosis)) %>%
+  mutate(age_group = cut(pt_age_diagnosis,
+                         breaks = c(-Inf, 55, 60, 65, 70, 75, 80, 85, 90, Inf),
+                         label = c("<55", "55-59", "60-64", "65-69", "70-74", "74-79", "80-84",
+                                   "85-89", ">= 90"),
+                         right = FALSE),
+         age_group = as_factor(age_group),
+         pt_sex = as_factor(pt_sex),
+         category = as_factor(category)) %>%
+  count(pt_sex, age_group, category, .drop = FALSE) %>%
+  rename(sex = pt_sex) %>%
+  mutate(category = str_wrap(category, 30))
+
+g1 <- population_pyramid(pyramid_df %>% dplyr::filter(category == "Other sites")) +
+  labs(subtitle = "Other sites")
+
+g2 <- population_pyramid(pyramid_df %>% dplyr::filter(category != "Other sites")) +
+  labs(subtitle = params$site_name)
+
+g1 / g2
+```
+
 ## Opt-out rate
 
 ### Overall opt-out table
@@ -290,7 +319,6 @@ opt_out_rate %>%
 ### Culminative overall opt-out rates (internal value) over the past 12 months
 
 ```{r monthly opt out, fig.width = 7, dpi = 300}
-
 ## Cumulative monthly opt-out rate
 monthly_dem <- data_all %>%
   mutate(month_year = case_when(database == "ADNeT Holding Database" ~ as_date(round_date(as.Date(dt_completed), "month")),
@@ -674,6 +702,96 @@ control = tbl_control
 summary(tab1, labelTranslations = tbl_labels)
 ```
 
+```{r diagnosis_graph, eval = eval_site, dpi = 300, fig.height = 6, fig.width = 7}
+graph_df <-
+  data_all %>%
+  dplyr::filter(database == "ADNeT Registry") %>%
+  count(category, dx) %>%
+  group_by(category) %>%
+  mutate(pct = n / sum(n),
+         label = glue::glue("{n} ({percent(pct, accuracy = 1)})"),
+         category = str_wrap(category, 20))
+
+graph_df %>%
+  ggplot(aes(x = pct, y = category, fill = dx)) +
+  geom_col(width = 0.5) +
+  geom_text(aes(label = label),
+            hjust = 1.5) +
+  scale_x_continuous(expand = c(0, 0),
+                     label = percent) +
+  labs(x = "Percentage of participants",
+       y = "",
+       fill = "")
+```
+
+```{r education, eval = eval_site, dpi = 300, fig.height = 6, fig.width = 9}
+graph_df <-
+  data_all %>%
+  dplyr::filter(database == "ADNeT Registry") %>%
+  mutate(pt_edu = as.factor(pt_edu),
+         pt_edu = fct_explicit_na(pt_edu, "Not stated/inadequately described"),
+         pt_edu = fct_relevel(pt_edu, 
+                              "Not stated/inadequately described",
+                              "No education",
+                              "Primary education or lower",
+                              "Junior secondary education (up to year 10)",
+                              "Senior secondary education (year 11 and above)")
+         ) %>%
+  count(category, pt_edu, .drop = FALSE) %>%
+  group_by(category) %>%
+  mutate(pct = n / sum(n),
+         label = glue::glue("{n} ({percent(pct, accuracy = 1)})"),
+         category = str_wrap(category, 30),
+         pt_edu = str_wrap(pt_edu, 30))
+
+graph_df %>%
+  ggplot(aes(x = pct, y = pt_edu, fill = category)) +
+  geom_col(width = 0.5,
+           position = position_dodge()) +
+  geom_text(aes(label = label),
+            hjust = 0,
+            position = position_dodge(width = 0.5)) +
+  scale_x_continuous(expand = c(0, 0),
+                     label = percent,
+                     limits = c(0, max(graph_df$pct) + 0.1)) +
+  labs(x = "Percentage of participants",
+       y = "",
+       fill = "") +
+  theme(legend.position = "bottom")
+```
+
+```{r living_arrangement, eval = eval_site, dpi = 300, fig.height = 6, fig.width = 9}
+graph_df <-
+  data_all %>%
+  dplyr::filter(database == "ADNeT Registry") %>%
+  mutate(pt_living = as.factor(pt_living),
+         pt_living = fct_explicit_na(pt_living, "Not stated/inadequately described"),
+         pt_living = fct_relevel(pt_living,
+                              "Not stated/inadequately described")
+         ) %>%
+  count(category, pt_living, .drop = FALSE) %>%
+  group_by(category) %>%
+  mutate(pct = n / sum(n),
+         label = glue::glue("{n} ({percent(pct, accuracy = 1)})"),
+         category = str_wrap(category, 30),
+         pt_living = str_wrap(pt_living, 30))
+
+graph_df %>%
+  ggplot(aes(x = pct, y = pt_living, fill = category)) +
+  geom_col(width = 0.5,
+           position = position_dodge()) +
+  geom_text(aes(label = label),
+            hjust = 0,
+            position = position_dodge(width = 0.5)) +
+  scale_x_continuous(expand = c(0, 0),
+                     label = percent,
+                     limits = c(0, max(graph_df$pct) + 0.1)) +
+  labs(x = "Percentage of participants",
+       y = "",
+       fill = "") +
+  theme(legend.position = "bottom")
+```
+
 ## Participant Clinical Profile
 
 ```{r diagnosis, results = 'asis'}
@@ -712,6 +830,35 @@ summary(tab1,
 )
 ```
 
+```{r dementia subtype by category, eval = eval_site, dpi = 300, fig.height = 6, fig.width = 9}
+graph_df <-
+  data_all %>%
+  dplyr::filter(
+    database == "ADNeT Registry",
+    dx == "Dementia"
+  ) %>%
+  count(category, dx_dementia) %>%
+  group_by(category) %>%
+  mutate(pct = n /sum(n),
+         label = glue::glue("{n} ({percent(pct, accuracy = 1)})"),
+         dx_dementia = fct_rev(dx_dementia),
+         category = str_wrap(category, 30))
+
+graph_df %>%
+  ggplot(aes(x = pct, y = dx_dementia, fill = category)) +
+  geom_col(position = position_dodge()) +
+  geom_text(aes(label = label),
+            position = position_dodge(width = 0.5),
+            hjust = -0.2) +
+  scale_x_continuous(limits = c(0, max(graph_df$pct) + 0.1),
+                     expand = c(0, 0),
+                     label = percent_format()) +
+  labs(x = "Percentage of participants",
+       y = "",
+       fill = "") +
+  theme(legend.position = "bottom")
+```
+
 ```{r MCI subtype, results='asis'}
 tbl_df <-
   data_all %>%
@@ -747,7 +894,7 @@ summary(tab1,
 
 ## PROPORTION OF DEMENTIA AND MCI
 
-```{r, fig.cap = "Proportion of dementia and MCI diagnoses across the ADNeT Registry cohort and at your site", fig.width = 7, dpi = 300, fig.showtext = TRUE}
+```{r, fig.cap = "Proportion of dementia and MCI diagnoses across the ADNeT Registry cohort and at your site", fig.width = 8, fig.height = 6, dpi = 300, fig.showtext = TRUE}
 graph_df <-
   data_all %>%
   dplyr::filter(!is.na(dx) & database == "ADNeT Registry") %>%
@@ -755,7 +902,8 @@ graph_df <-
   group_by(category) %>%
   mutate(
     pct = round(100 * n / sum(n)),
-    label = glue::glue("{n} ({pct}%)")
+    label = glue::glue("{n} ({pct}%)"),
+    category = str_wrap(category, 30)
   )
 
 graph_df %>%
@@ -786,7 +934,7 @@ graph_df %>%
 
 ## DISTRIBUTION OF DEMENTIA SUBTYPE
 
-```{r, fig.cap = "Distribution of dementia subtype at your site", fig.width = 7, fig.height = 9, dpi = 300, fig.showtext = TRUE}
+```{r, eval = eval_site, fig.cap = "Distribution of dementia subtype at your site", fig.width = 9, fig.height = 7, dpi = 300, fig.showtext = TRUE}
 graph_df <-
   data_all %>%
   dplyr::filter(database == "ADNeT Registry", dx == "Dementia") %>%
@@ -805,7 +953,7 @@ graph_df <-
 
 graph_df %>%
   ggplot(aes(x = pct, y = dx_dementia, fill = category)) +
-  geom_col(width = 0.75, position = "dodge") +
+  geom_col(width = 0.8, position = "dodge")+
   geom_text(aes(label = label, hjust = hjust, col = col),
     position = position_dodge(width = 0.5)
   ) +
@@ -977,7 +1125,9 @@ summary(tab12, labelTranslations = tbl_labels)
 all_df <-
   data %>%
   dplyr::filter(database == "ADNeT Registry",
-                pt_exist_dx_mci != "Yes") %>%
+                pt_exist_dx_mci != "Yes",
+                is.na(pt_exist_dx_mci)
+                ) %>%
   select(
     dx,
     site_name,
@@ -1164,7 +1314,6 @@ summary(tab1, labelTranslations = tbl_labels)
 ## Baseline Patient and Survey Results
 
 ```{r response rate, results='asis'}
-
 all_df <- data %>% 
   dplyr::filter(
       (database == "ADNeT Registry" &
@@ -1243,3 +1392,142 @@ cat.simplify = TRUE
 summary(tab1, labelTranslations = tbl_labels)
 ```
 
+```{r, eval = eval_site, fig.height = 6, fig.width = 8, dpi = 300}
+graph_df <- 
+  data_all %>%
+  dplyr::filter(database == "ADNeT Registry") %>% 
+  select(category, site_name, pt_wellbeing, cr_wellbeing) %>%
+  mutate(across(c("pt_wellbeing", "cr_wellbeing"), ~case_when(
+      str_detect(., "poor|Poor") ~ "Very Poor / Poor",
+      str_detect(., "good|Good") ~ "Good / Very Good",
+      # str_detect(x, "Poor") ~ "Poor",
+      str_detect(., "Fair") ~ "Fair",
+      # str_detect(x, "Good") ~ "Good",
+    ) %>%
+      factor(levels = c("Very Poor / Poor", "Fair", "Good / Very Good"),
+             labels = c("Very Poor/Poor", "Fair", "Good/Very Good"))
+  )) %>% 
+  pivot_longer(c(pt_wellbeing, cr_wellbeing)) %>% 
+  drop_na() %>%
+  count(category, name, value) %>% 
+  mutate(
+    name = case_when(
+      name == "pt_wellbeing" ~ "Patient",
+      name == "cr_wellbeing" ~ "Carer"
+    ) %>% factor(c("Patient", "Carer"))) %>%
+  group_by(category, name) %>%
+  mutate(
+    pct = n/sum(n),
+    label = glue::glue("{n} ({percent(pct, accuracy = 1)})"),
+    category = str_wrap(category, 30)
+  )
+
+
+graph_df %>% 
+  dplyr::filter(name == "Patient") %>%
+  ggplot(aes(x = pct, y = category, fill = value, label = label)) +
+  geom_col(width = 0.4) +
+  geom_text(col = "white",
+            position = position_stack(vjust = 0.5)) +
+  scale_x_continuous(label = percent_format(accuracy = 1),
+                     expand = c(0, 0)) +
+  labs(x = "Percentage of participants",
+       y = "",
+       fill = "",
+       title = "Patient reported wellbeing")
+```
+
+
+```{r, eval = eval_site, fig.width = 8, fig.height = 9, dpi = 300}
+vars <- c("pt_exp_dx","pt_exp_deci","pt_exp_quest","pt_exp_concern", "pt_exp_treatm",
+          "pt_exp_advice","pt_exp_expect",
+          "cr_adeq_info","cr_involvment","cr_opp_quest","cr_listened",
+          "cr_treated","cr_advice_given","cr_exp_expect")
+
+
+graph_df <- 
+  data_all %>%
+  dplyr::filter(database == "ADNeT Registry") %>% 
+  select(category, record_id, vars, pt_exp, cr_exp) %>%
+  mutate(across(vars, ~case_when(
+      str_detect(., "disagree|Disagree") ~ "Disagree / Totally Disagree",
+      str_detect(., "agree|Agree") ~ "Agree / Totally Agree",
+      str_detect(., "Neutral") ~ "Neutral",
+    ) %>%
+      factor(
+        levels = c("Disagree / Totally Disagree", "Neutral", "Agree / Totally Agree"),
+        labels = c(
+          "Disagree / Totally Disagree ",
+          "Neutral",
+          "Agree / Totally Agree")
+        ))
+    )  %>% 
+  mutate(across(c("pt_exp","cr_exp"), ~ case_when(
+      str_detect(., "poor|Poor") ~ "Very Poor / Poor",
+      str_detect(., "good|Good") ~ "Good / Very Good",
+      str_detect(., "Fair") ~ "Fair",
+    ) %>%
+      factor(
+        levels = c("Very Poor / Poor", "Fair", "Good / Very Good"),
+        labels = c(
+          "Very Poor / Poor  ",
+          "Fair             ",
+          "Good / Very Good "
+        )
+    ))
+    ) %>%
+  pivot_longer(-c(record_id, category)) %>% 
+  drop_na() %>%
+  mutate(
+    type = case_when(
+      str_detect(name,"pt_") ~ "Patient",
+      str_detect(name,"cr_") ~ "Carer"
+    ) %>% factor(c("Patient", "Carer")),
+    name = case_when(
+      name %in% c("pt_exp_dx","cr_adeq_info") ~ "Received adequate diagnosis information",
+      name %in% c("pt_exp_deci","cr_involvment") ~ "Involved in making decisions",
+      name %in% c("pt_exp_quest","cr_opp_quest") ~ "Opportunity to ask questions",
+      name %in% c("pt_exp_concern","cr_listened") ~ "Views and concerns were heard",
+      name %in% c("pt_exp_treatm","cr_treated") ~ "Treated with dignity and respect",
+      name %in% c("pt_exp_advice","cr_advice_given") ~ "Advised about more info",
+      name %in% c("pt_exp","cr_exp") ~ "Overall experience",
+      name %in% c("pt_exp_expect","cr_exp_expect") ~ "Meeting expectations"
+    ) %>%
+      factor(levels = c("Received adequate diagnosis information",
+                        "Involved in making decisions",
+                        "Opportunity to ask questions",
+                        "Views and concerns were heard",
+                        "Treated with dignity and respect",
+                        "Advised about more info",
+                        "Overall experience",
+                        "Meeting expectations"))
+    ) 
+
+graph_df <-
+  graph_df %>%
+  count(category, type, name, value) %>%
+  group_by(category, type, name) %>%
+  mutate(pct = n /sum(n)) %>%
+  ungroup() %>%
+  mutate(label = glue::glue("{n} ({percent(pct, accuracy = 1)})"),
+         name = str_wrap(name, 30),
+         category = str_wrap(category, 30)) 
+  
+graph_df %>%
+  dplyr::filter(type == "Patient",
+                str_detect(name, "Advised|Overall|Meeting")) %>%
+  ggplot(aes(x = pct, y = value, fill = category, label = label)) +
+  geom_col(position = position_dodge()) +
+  geom_text(position = position_dodge(width = 0.5),
+            hjust = 0) +
+  facet_wrap(~ name, scales = "free_y", ncol = 1) +
+  labs(x = "",
+       y = "") +
+  scale_x_continuous(limits = c(0, 1.1)) +
+  labs(x = "",
+       y = "",
+       fill = "",
+       title = "Patient reported experience")
+
+
+```
