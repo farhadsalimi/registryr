@@ -6,10 +6,10 @@ output:
   word_document: default
 always_allow_html: true
 params:
-  registry_token: xxxx
-  holding_token: yyyy
-  optout:  zzzz
-  site_name: all
+  registry_token: "xxx"
+  holding_token: "yyy"
+  optout:  "zzz"
+  site_name: "all"
 ---
 
 ```{r setup, include=FALSE}
@@ -22,6 +22,7 @@ p_load(
   conflicted,
   readxl,
   kableExtra,
+  patchwork,
   REDCapR
 )
 
@@ -1125,8 +1126,7 @@ summary(tab12, labelTranslations = tbl_labels)
 all_df <-
   data %>%
   dplyr::filter(database == "ADNeT Registry",
-                pt_exist_dx_mci != "Yes",
-                is.na(pt_exist_dx_mci)
+                (pt_exist_dx_mci != "Yes" | is.na(pt_exist_dx_mci))
                 ) %>%
   select(
     dx,
