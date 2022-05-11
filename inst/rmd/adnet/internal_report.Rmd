@@ -9,7 +9,7 @@ params:
   registry_token: "xxx"
   holding_token: "yyy"
   optout:  "zzz"
-  site_name: "all"
+  site_name: "The ISLAND Clinic"
 ---
 
 ```{r setup, include=FALSE}
@@ -46,7 +46,7 @@ eval_site <- str_to_lower(params$site_name) != "all"
 data_all <-
   data %>%
   rename(site_name = redcap_data_access_group) %>%
-  mutate(category = if_else(site_name == params$site_name,
+  mutate(category = if_else(str_to_lower(str_remove_all(site_name, " ")) == str_to_lower(str_remove_all(params$site_name, " ")),
     params$site_name,
     "Other sites"
   ))
@@ -54,7 +54,7 @@ data_all <-
 data <-
   data %>%
   rename(site_name = redcap_data_access_group) %>%
-  dplyr::filter(site_name == params$site_name)
+  dplyr::filter(str_to_lower(str_remove_all(site_name, " ")) == str_to_lower(str_remove_all(params$site_name, " ")))
 ```
 
 ```{r, eval = !eval_site}
@@ -831,7 +831,7 @@ summary(tab1,
 )
 ```
 
-```{r dementia subtype by category, eval = eval_site, dpi = 300, fig.height = 6, fig.width = 9}
+```{r dementia subtype by category, dpi = 300, fig.height = 6, fig.width = 9}
 graph_df <-
   data_all %>%
   dplyr::filter(
