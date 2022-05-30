@@ -9,7 +9,7 @@ params:
   registry_token: "xxx"
   holding_token: "yyy"
   optout:  "zzz"
-  site_name: "The ISLAND Clinic"
+  site_name: "Grampians CDAMS"
 ---
 
 ```{r setup, include=FALSE}
@@ -838,7 +838,7 @@ graph_df <-
     database == "ADNeT Registry",
     dx == "Dementia"
   ) %>%
-  count(category, dx_dementia) %>%
+  count(category, dx_dementia, .drop = FALSE) %>%
   group_by(category) %>%
   mutate(pct = n /sum(n),
          label = glue::glue("{n} ({percent(pct, accuracy = 1)})"),
@@ -939,7 +939,9 @@ graph_df %>%
 graph_df <-
   data_all %>%
   dplyr::filter(database == "ADNeT Registry", dx == "Dementia") %>%
-  count(dx_dementia, category, drop = FALSE) %>%
+  mutate(dx_dementia = as_factor(dx_dementia),
+         category = as_factor(category)) %>%
+  count(dx_dementia, category, .drop = FALSE)%>%
   group_by(category) %>%
   mutate(
     pct = n / sum(n),
@@ -949,13 +951,17 @@ graph_df <-
       -0.2,
       1
     ),
-    col = if_else(pct < 0.1, "black", "white")
+    col = pct < 0.1
   )
 
 graph_df %>%
   ggplot(aes(x = pct, y = dx_dementia, fill = category)) +
   geom_col(width = 0.8, position = "dodge")+
-  geom_text(aes(label = label, hjust = hjust, col = col),
+  geom_text(aes(label = label, 
+                # hjust = hjust, 
+                # col = col
+                ),
+            hjust = -0.2,
     position = position_dodge(width = 0.5)
   ) +
   labs(
@@ -964,18 +970,22 @@ graph_df %>%
     Vascular Dementia with or without another dementia subtype"
   ) +
   scale_fill_manual(name = "", values = c("#152144", "#00A480")) +
-  scale_colour_manual(name = "", values = c("black", "white")) +
-  scale_x_continuous(labels = percent) +
+  # scale_colour_manual(name = "", values = c("white", "black")) +
+  scale_x_continuous(labels = percent,
+                     limits = c(NA, max(graph_df$pct) + 0.2)) +
+  # scale_y_discrete(drop = FALSE) +
   # theme_cowplot() +
   theme(
     text = element_text(size = 16),
     axis.text = element_text(size = rel(1)),
     axis.text.y = element_text(size = rel(1)),
-    legend.position = "none",
+    # legend.position = "none",
     plot.caption.position =  "plot",
     plot.caption = element_text(hjust = 0, size = 12, margin = margin(t = 30))
   ) +
-  guides(fill = guide_legend(reverse = TRUE), colour = "none")
+  guides(fill = guide_legend(reverse = TRUE), 
+         colour = "none"
+         )
 ```
 
 \newpage
@@ -1505,7 +1515,7 @@ graph_df <-
 
 graph_df <-
   graph_df %>%
-  count(category, type, name, value) %>%
+  count(category, type, name, value, .drop = FALSE) %>%
   group_by(category, type, name) %>%
   mutate(pct = n /sum(n)) %>%
   ungroup() %>%
