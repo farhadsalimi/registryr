@@ -1511,33 +1511,49 @@ graph_df <-
                         "Advised about more info",
                         "Overall experience",
                         "Meeting expectations"))
-    ) 
+    )
 
 graph_df <-
   graph_df %>%
-  count(category, type, name, value, .drop = FALSE) %>%
-  group_by(category, type, name) %>%
-  mutate(pct = n /sum(n)) %>%
-  ungroup() %>%
-  mutate(label = glue::glue("{n} ({percent(pct, accuracy = 1)})"),
-         name = str_wrap(name, 30),
-         category = str_wrap(category, 30)) 
+  group_by(name,type, category) %>%
+  add_count() %>%
+  group_by(name,type,value,category) %>%
+  summarise(total = max(n),
+            complete = n(),
+            pct = complete/total,
+            label = glue::glue("{complete} ", "({percent(pct, accuracy = 1)})")) %>%
+  mutate(name = str_wrap(name, 30),
+         category = str_wrap(category, 30))
   
 graph_df %>%
   dplyr::filter(type == "Patient",
                 str_detect(name, "Advised|Overall|Meeting")) %>%
-  ggplot(aes(x = pct, y = value, fill = category, label = label)) +
-  geom_col(position = position_dodge()) +
-  geom_text(position = position_dodge(width = 0.5),
-            hjust = 0) +
+  ggplot(aes(x = value, y = pct, fill = category, group = category)) +
+  geom_col(position = position_dodge(width = 0.9)) +
+  # facet_wrap(~name, scales = "free", nrow = 4) +
+  geom_text(aes( x = value,
+              y = pct, 
+              label = label,
+              group = category),
+          position = position_dodge(width = 0.9),
+          hjust = -0.35,
+          size = 3) +
   facet_wrap(~ name, scales = "free_y", ncol = 1) +
-  labs(x = "",
-       y = "") +
-  scale_x_continuous(limits = c(0, 1.1)) +
-  labs(x = "",
-       y = "",
-       fill = "",
-       title = "Patient reported experience")
+  labs(title = "Patient reported experience") +
+  theme(axis.text = element_text(size = 10),
+        plot.subtitle = element_text(size = 10,
+                                     hjust = 0.5),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 10),
+        axis.title = element_blank(),
+        legend.position = "bottom"
+      # axis.text = element_text(size = 12)
+    ) +
+  scale_y_continuous(expand = c(0,0), 
+                     limits = c(0, max(graph_df$pct) + 0.01),
+                     label = percent_format(accuracy = 1)) +
+  scale_x_discrete(expand = c(0.1,0.5)) +
+  coord_flip()
 
 
 ```
