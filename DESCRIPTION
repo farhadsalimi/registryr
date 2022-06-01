@@ -1,6 +1,6 @@
 Package: registryr
 Title: Functions for the Clinical Registries Analyses 
-Version: 0.0.1.5
+Version: 0.0.1.6
 Authors@R: 
     person(given = "Farhad",
            family = "Salimi",
