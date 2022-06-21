@@ -45,7 +45,7 @@ eval_site <- str_to_lower(params$site_name) != "all"
 ```{r subset the data, eval = eval_site}
 data_all <-
   data %>%
-  rename(site_name = redcap_data_access_group) %>%
+  rename(site_name = site_name_in_report) %>%
   mutate(category = if_else(str_to_lower(str_remove_all(site_name, " ")) == str_to_lower(str_remove_all(params$site_name, " ")),
     params$site_name,
     "Other sites"
@@ -53,20 +53,20 @@ data_all <-
 
 data <-
   data %>%
-  rename(site_name = redcap_data_access_group) %>%
+  rename(site_name = site_name_in_report) %>%
   dplyr::filter(str_to_lower(str_remove_all(site_name, " ")) == str_to_lower(str_remove_all(params$site_name, " ")))
 ```
 
 ```{r, eval = !eval_site}
 data_all <-
   data %>%
-  rename(site_name = redcap_data_access_group) %>%
+  rename(site_name = site_name_in_report) %>%
   mutate(category = "All sites")
 
 
 data <-
   data %>%
-  rename(site_name = redcap_data_access_group)
+  rename(site_name = site_name_in_report)
 ```
 
 # RECRUITMENT
